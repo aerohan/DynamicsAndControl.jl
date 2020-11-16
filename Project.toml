@@ -1,0 +1,4 @@
+name = "DynamicsAndControl"
+uuid = "d84a7430-30e0-456f-b409-392825a7994c"
+authors = ["Rohan Punnoose <rohanjp@stanford.edu>"]
+version = "0.1.0"
