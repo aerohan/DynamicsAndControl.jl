@@ -1,5 +1,8 @@
 module DynamicsAndControl
 
-greet() = print("Hello World!")
+using MacroTools
+using Infiltrator
+
+include("components.jl")
 
 end # module
