@@ -25,25 +25,29 @@ macro state(typename, blocks)
     # expand substate macros
     blocks = macroexpand(__module__, blocks)
 
-    # record the integration state type name
-    get_istate_type(block) = begin
-         @capture(block, mutable struct I_ <: IntegrableState fields__ end) || return nothing
-         return I
+    # set up the integrable substate
+    integrable_state_type = nothing
+    blocks = MacroTools.prewalk(blocks) do expr
+        if @capture(expr, Placeholder <: IntegrableState)
+            @assert integrable_state_type == nothing "unable to parse, are there multiple @integrable sections?"
+            integrable_state_type = gensym("IntegrableState")
+            return :($integrable_state_type <: IntegrableState)
+        else
+            return expr
+        end
     end
-    integrable_state_types = [get_istate_type(block) for block in blocks.args]
-    integrable_state_types = integrable_state_types[integrable_state_types .!= nothing]
-    length(integrable_state_types) >= 1 || error("unable to parse integrable state definition, are there multiple @integrable sections?")
-    integrable_state_type = length(integrable_state_types) == 1 ? integrable_state_types[1] : nothing
 
-    # record the direct state type name
-    get_dstate_type(block) = begin
-         @capture(block, mutable struct I_ <: DirectState fields__ end) || return nothing
-         return I
+    # set up the direct substate
+    direct_state_type = nothing
+    blocks = MacroTools.prewalk(blocks) do expr
+        if @capture(expr, Placeholder <: DirectState)
+            @assert direct_state_type == nothing "unable to parse, are there multiple @direct sections?"
+            direct_state_type = gensym("DirectState")
+            return :($direct_state_type <: DirectState)
+        else
+            return expr
+        end
     end
-    direct_state_types = [get_dstate_type(block) for block in blocks.args]
-    direct_state_types = direct_state_types[direct_state_types .!= nothing]
-    length(direct_state_types) >= 1 || error("unable to parse direct state definition, are there multiple @direct sections?")
-    direct_state_type = length(direct_state_types) == 1 ? direct_state_types[1] : nothing
 
     # propagate parametric types
     blocks = MacroTools.prewalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(type_params...)} <: $(S)) : x, blocks)
