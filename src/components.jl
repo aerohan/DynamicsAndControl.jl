@@ -37,6 +37,12 @@ macro state(typename, blocks)
         end
     end
 
+    # handle the unspecified case
+    if integrable_state_type == nothing
+        integrable_state_type = gensym("IntegrableState")
+        push!(blocks.args, :(mutable struct $integrable_state_type <: IntegrableState end))
+    end
+
     # set up the direct substate
     direct_state_type = nothing
     blocks = MacroTools.prewalk(blocks) do expr
@@ -49,8 +55,25 @@ macro state(typename, blocks)
         end
     end
 
+    # handle the unspecified case
+    if direct_state_type == nothing
+        direct_state_type = gensym("DirectState")
+        push!(blocks.args, :(mutable struct $direct_state_type <: DirectState end))
+    end
+
     # propagate parametric types
-    blocks = MacroTools.prewalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(type_params...)} <: $(S)) : x, blocks)
+    blocks = Expr(blocks.head, [begin 
+        if @capture(subblock, mutable struct T_ fields__ end)
+            field_types = [begin
+                @capture(field, f_::T2_) || error("all fields must have concrete types")
+                T2
+            end for field in fields]
+            intersected_type_params = [param for param in type_params if any(inexpr.(field_types, param))]
+            subblock = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(intersected_type_params...)} <: $(S)) : x, subblock)
+        end
+
+        subblock
+    end for subblock in blocks.args]...)
 
     dynamic_state_type = gensym("DynamicState")
     push!(type_params, :(NT <: NamedTuple))
