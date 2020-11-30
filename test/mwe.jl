@@ -35,3 +35,26 @@ end
         T_thrust::MVector{2, T}
     end
 end
+
+function initialize(::Type{AircraftDynamics}, init_config)
+    istate_0 = (r=init_config.r0, v=init_config.v0, q=init_config.q0, ω=init_config.ω0)
+    dstate_0 = (landed=false,)
+
+    # returns a tuple of ([initial integrable state], [initial direct state], [configuration parameters])
+    return istate_0, dstate_0, init_config
+end
+
+function dynamics!(this::AircraftDynamics, ẋ, x, u, t)
+    @unpack r, v, q, ω = x
+    @unpack f = u
+    @unpack mass = config(this)
+
+    ẋ.r = v
+    ẋ.v = f/mass
+
+    telemeter(this, :main, t, @channels begin
+        ẋ.r => ṙ
+        ẋ.v => v̇
+        α
+    end)
+end
