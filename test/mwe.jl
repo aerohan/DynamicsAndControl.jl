@@ -58,3 +58,7 @@ function dynamics!(this::AircraftDynamics, ẋ, x, u, t)
         α
     end)
 end
+
+function control!(this::AircraftDynamics, u, control_state, y)
+
+end

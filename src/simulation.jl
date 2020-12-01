@@ -1,8 +1,10 @@
-struct Simulation
+using BenchmarkTools
+
+struct Simulation{D<:Dynamics}
     # Components
-    dynamics::Dynamics
-    #sensing::Sensing
-    #control::Control
+    dynamics::D
+    #sensing::S where S<:Sensing
+    #control::C where C<:Control
 
     # Auxiliary
     telem::TelemetrySink
@@ -28,3 +30,30 @@ function Simulation(dynamics_args)
 
     return Simulation(dynamics, telem)
 end
+
+function simulate(sim::Simulation, tspan)
+    tstart, tfinal = process_time_span(tspan)
+
+    set_state!(sim.dynamics.x, sim.dynamics.x_initial_integrable, sim.dynamics.x_initial_direct)
+
+    copyto!(sim.dynamics.x_integrable_vector, integrable_substate(sim.dynamics))
+
+    sim.dynamics.x_integrable_vector[1] *= 1.5
+    sim.dynamics.x_integrable_vector[2] *= 1.6
+    sim.dynamics.x_integrable_vector[7] *= 1.7
+
+    copyto!(integrable_substate(sim.dynamics), sim.dynamics.x_integrable_vector)
+
+    return sim
+
+    #copyto!(sim.dynamics.x, xi_vector)
+end
+
+function dynamics_ode_interface(sim, ẋ, x, _, t)
+    copyto!(sim.dynamics.x, x)
+    compute_ẋ!(sim)
+    copyto!(ẋ, sim.dynamics.ẋ)
+end
+
+process_time_span(tspan::Tuple) = tspan[1], tspan[2]
+process_time_span(tfinal::Real) = 0, tfinal
