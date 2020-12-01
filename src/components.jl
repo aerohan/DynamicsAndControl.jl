@@ -16,6 +16,9 @@ abstract type SensorOutputs end
 
 function initialize(::Type{Component}, config) end
 
+function dynamics!(::Dynamics, ẋ, x, u, t) end
+function update!(::Dynamics, ẋ, x, u, t) return false end
+
 # Dynamics
 
 macro dynamics(typename, blocks)
@@ -108,6 +111,7 @@ macro dynamics(typename, blocks)
 
         struct $(dynamic_state_type) <: DynamicState
             x_integrable::$(integrable_state_type)
+            ẋ_integrable::$(integrable_state_type)
             x_direct::$(direct_state_type)
         end
 
@@ -171,8 +175,9 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_d
                          x_integrable_tuple_in, x_direct_tuple_in, static, telem) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}
     # create the integrable, direct, dynamic state data structures
     istate = T_int(x_integrable_tuple_in...)
+    istate_deriv = T_int(x_integrable_tuple_in...)
     dstate = T_dir(x_direct_tuple_in...)
-    dynamic_state = T_dynstate(istate, dstate)
+    dynamic_state = T_dynstate(istate, istate_deriv, dstate)
 
     # initialize the ODE interface state vector with the correct size and type
     n_integrable = integrable_size(dynamic_state)
@@ -217,6 +222,7 @@ Base.setproperty!(x::DynamicState, sym::Symbol, value) = Base.setproperty!(x, Va
 end
 
 integrable_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_integrable)
+integrable_substate_derivative(dynamics::Dynamics) = getfield(dynamics.x, :ẋ_integrable)
 direct_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_direct)
 
 integrable_size(dynamics::Dynamics) = integrable_size(dynamics.x)

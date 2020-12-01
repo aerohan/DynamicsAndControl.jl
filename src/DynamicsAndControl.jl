@@ -1,8 +1,13 @@
 module DynamicsAndControl
 
 using MacroTools
-using Infiltrator
 using StaticArrays
+using OrdinaryDiffEq
+using UnPack
+
+# debugging only
+using Infiltrator
+
 
 include("telemetry.jl")
 include("components.jl")
@@ -20,5 +25,9 @@ export
     TelemetrySink,
     simulate,
     create_dynamics
+
+export
+    @unpack,
+    @pack!
 
 end # module
