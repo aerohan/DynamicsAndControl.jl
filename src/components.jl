@@ -20,9 +20,12 @@ function initialize(::Type{Component}, config) end
 
 macro dynamics(typename, blocks)
     # capture parametric types to propagate to substates
-    @capture(typename, T_{P__})
-    typename_bare = T
-    type_params = P
+    typename_bare = namify(typename)
+    if @capture(typename, T_{P__})
+        type_params = P
+    else
+        type_params = []
+    end
 
     # expand substate macros
     blocks = macroexpand(__module__, blocks)
@@ -77,21 +80,28 @@ macro dynamics(typename, blocks)
             subblock = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(intersected_type_params...)} <: $(S)) : x, subblock)
 
             # update the substate type name with the intersected type parameters
-            if T == integrable_state_type
-                integrable_state_type = :($integrable_state_type{$(intersected_type_params...)})
-            elseif T == direct_state_type
-                direct_state_type = :($direct_state_type{$(intersected_type_params...)})
+            if length(intersected_type_params) > 0
+                if T == integrable_state_type
+                    integrable_state_type = :($integrable_state_type{$(intersected_type_params...)})
+                elseif T == direct_state_type
+                    direct_state_type = :($direct_state_type{$(intersected_type_params...)})
+                end
             end
         end
 
         subblock
     end for subblock in blocks.args]...)
 
-    dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")){$(type_params...)})
-    push!(type_params, :(V <: AbstractVector))
-    push!(type_params, :(T_xi0 <: Tuple))
-    push!(type_params, :(T_xd0 <: Tuple))
-    push!(type_params, :(NT <: NamedTuple))
+    if length(type_params) > 0
+        dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")){$(type_params...)})
+    else
+        dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")))
+    end
+
+    push!(type_params, :(V<:AbstractVector))
+    push!(type_params, :(T_xi0<:Tuple))
+    push!(type_params, :(T_xd0<:Tuple))
+    push!(type_params, :(NT<:NamedTuple))
 
     quote
         $blocks
@@ -166,7 +176,7 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_d
 
     # initialize the ODE interface state vector with the correct size and type
     n_integrable = integrable_size(dynamic_state)
-    T_scalar = scalar_type(dynamic_state)
+    T_scalar = integrable_scalar_type(dynamic_state)
     xi_vector = Vector{T_scalar}(undef, n_integrable)
 
     istate_fields = fieldnames(typeof(istate))
@@ -214,7 +224,7 @@ integrable_size(dynstate::DynamicState) = integrable_size(getfield(dynstate, :x_
 
 function integrable_size(istate::IntegrableState)
     ftypes = fieldtypes(typeof(istate))
-    return sum([integrable_size(ftype) for ftype in ftypes])
+    return length(ftypes) > 0 ? sum([integrable_size(ftype) for ftype in ftypes]) : 0
 end
 
 #function integrable_size(::Type{T<:IntegrableState}) where T
@@ -228,31 +238,19 @@ integrable_size(::Type{MVector{N, T}}) where {T, N} = N
 integrable_size(::Type{SizedVector{N, T}}) where {T, N} = N
 integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
 
-scalar_type(dynamics::Dynamics) = scalar_type(dynamics.x)
-scalar_type(dynstate::DynamicState) = promote_type(scalar_type(getfield(dynstate, :x_integrable)), scalar_type(getfield(dynstate, :x_direct)))
+integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(dynamics.x)
+integrable_scalar_type(dynstate::DynamicState) = integrable_scalar_type(getfield(dynstate, :x_integrable))
 
-function scalar_type(substate::Union{IntegrableState, DirectState})
+function integrable_scalar_type(substate::Union{IntegrableState, DirectState})
     ftypes = fieldtypes(typeof(substate))
-    return promote_type([scalar_type(ftype) for ftype in ftypes]...)
+    return promote_type([integrable_scalar_type(ftype) for ftype in ftypes]...)
 end
 
-scalar_type(::Type{T}) where T = T
-scalar_type(::Type{SVector{N, T}}) where {T, N} = T
-scalar_type(::Type{MVector{N, T}}) where {T, N} = T
-scalar_type(::Type{SizedVector{N, T}}) where {T, N} = T
-scalar_type(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
-
-#function set_state!(x::DynamicState, x_integrable, x_direct)
-#    x_integrable_data = getfield(x, :x_integrable)
-#    for (field, value) in zip(fieldnames(typeof(x_integrable_data)), x_integrable)
-#        setfield!(x_integrable_data, field, value)
-#    end
-#
-#    x_direct_data = getfield(x, :x_direct)
-#    for (field, value) in zip(fieldnames(typeof(x_direct_data)), x_direct)
-#        setfield!(x_direct_data, field, value)
-#    end
-#end
+integrable_scalar_type(::Type{T}) where T = T
+integrable_scalar_type(::Type{SVector{N, T}}) where {T, N} = T
+integrable_scalar_type(::Type{MVector{N, T}}) where {T, N} = T
+integrable_scalar_type(::Type{SizedVector{N, T}}) where {T, N} = T
+integrable_scalar_type(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
 
 @generated function set_state!(x::DynamicState, x_integrable_in, x_direct_in)
     out = quote
@@ -280,16 +278,6 @@ scalar_type(::Type{T}) where {T<:Vector} = error("only statically sized vectors 
 
     return out
 end
-
-#function Base.copyto!(x_vector::AbstractVector, x_dyn::IntegrableState)
-#    istart = 1
-#    T_istate = typeof(x_dyn)
-#    for (name, type) in zip(fieldnames(T_istate), fieldtypes(T_istate))
-#        iend = istart + integrable_size(type) - 1
-#        view(x_vector, istart:iend) .= getfield(x_dyn, name)
-#        istart = iend + 1
-#    end
-#end
 
 @generated function Base.copyto!(xi_vector::AbstractVector, xi_dyn::IntegrableState)
     out = :()
@@ -320,11 +308,11 @@ end
 end
 
 # methods for copying a specific integrable state field from the ODE-interface
-# vector to the state data structure
+# vector to the integrable state data structure
 #
 # custom types can be placed inside the integrable state by satisfying the following interface:
 #   1. define an "integrable_size" method
-#   2. define a "scalar_type" method
+#   2. define a "integrable_scalar_type" method
 #   3. define a "copyto!" method with the type signature matching below
 
 # unless we have a specific method for deserializing, assume the view subarray

@@ -36,17 +36,7 @@ function simulate(sim::Simulation, tspan)
 
     set_state!(sim.dynamics.x, sim.dynamics.x_initial_integrable, sim.dynamics.x_initial_direct)
 
-    copyto!(sim.dynamics.x_integrable_vector, integrable_substate(sim.dynamics))
-
-    sim.dynamics.x_integrable_vector[1] *= 1.5
-    sim.dynamics.x_integrable_vector[2] *= 1.6
-    sim.dynamics.x_integrable_vector[7] *= 1.7
-
-    copyto!(integrable_substate(sim.dynamics), sim.dynamics.x_integrable_vector)
-
-    return sim
-
-    #copyto!(sim.dynamics.x, xi_vector)
+    return nothing
 end
 
 function dynamics_ode_interface(sim, ẋ, x, _, t)
