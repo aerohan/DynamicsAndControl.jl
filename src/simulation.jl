@@ -35,7 +35,7 @@ function simulate(sim::Simulation, tspan, dt, solver)
     # set up the initial state
     set_state!(sim.dynamics.x, sim.dynamics.x_initial_integrable, sim.dynamics.x_initial_direct)
     copyto!(sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate(sim.dynamics))
-    x0_vector = sim.dynamics.x_integrable_vector
+    x0_vector = copy(sim.dynamics.x_integrable_vector)
 
     # set up the ODE solver
     ode_func! = (ẋ, x, _, t) -> dynamics_ode_interface!(sim, ẋ, x, t)

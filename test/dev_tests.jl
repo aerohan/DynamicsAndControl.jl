@@ -1,6 +1,5 @@
 using Test
 using BenchmarkTools
-using Revise
 
 using DynamicsAndControl
 import DynamicsAndControl
