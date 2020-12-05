@@ -21,6 +21,21 @@ mutable struct LogDataSink
 end
 LogDataSink() = LogDataSink(Dict{LogDataFlowId, Dict{Symbol, Vector}}())
 
+function log!(component::Component, flow, t, current_data::NamedTuple)
+    make_tuple(flow::Symbol) = (flow,)
+    make_tuple(flow) = flow
+
+    augmented_flow_namespace = (namespace(component), make_tuple(flow)...)
+
+    # typically log on first of these conditions. second condition handles the
+    # edge case where the state is updated between integration steps, so FSAL
+    # is broken and the dynamics is called again at the beginning of the
+    # integration step
+    if get(simtime(component)) + sim_dt(component) ≈ t || get(simtime(component)) ≈ t
+        log!(log_sink(component), augmented_flow_namespace, t, current_data)
+    end
+end
+
 function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple)
     flow = LogDataFlowId(flow)
 

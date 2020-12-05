@@ -9,6 +9,7 @@ using UnPack
 using Infiltrator
 
 
+include("types.jl")
 include("telemetry.jl")
 include("components.jl")
 include("simulation.jl")
@@ -22,10 +23,12 @@ export
     DynamicState,
     Dynamics,
     Simulation,
+    ComponentCommon,
     LogDataSink,
     simulate,
     create_dynamics,
-    log!
+    log!,
+    static
 
 export
     @unpack,

@@ -1,20 +1,10 @@
-abstract type Component end
-
-abstract type Dynamics <: Component end
-abstract type Control <: Component end
-abstract type Sensing <: Component end
-
-abstract type DynamicState end
-abstract type IntegrableState end
-abstract type DirectState end
-
-abstract type ControlState end
-abstract type ControlOutputs end
-
-abstract type SensorState end
-abstract type SensorOutputs end
-
 function initialize(::Type{Component}, config) end
+
+simtime(c::Component) = c.component_common.simtime
+sim_dt(c::Component) = c.component_common.simulation_dt
+namespace(c::Component) = c.component_common.namespace
+log_sink(c::Component) = c.component_common.log_sink
+static(c::Component) = c.component_common.static
 
 function dynamics!(::Dynamics, ẋ, x, u, t) end
 function update!(::Dynamics, ẋ, x, u, t) return false end
@@ -23,8 +13,19 @@ function update!(::Dynamics, ẋ, x, u, t) return false end
 mutable struct SimTime{T}
     t::T
 end
-set(time::SimTime, t) = (time.t = t)
+set!(time::SimTime, t) = (time.t = t)
 get(time::SimTime) = time.t
+
+struct ComponentCommon{T_t, NT}
+    # Global sim time
+    simtime::SimTime{T_t}
+    simulation_dt::T_t
+
+    # Auxiliary data and objects (static params and telem sink)
+    static::NT
+    log_sink::LogDataSink
+    namespace::Symbol
+end
 
 # Dynamics
 
@@ -112,6 +113,7 @@ macro dynamics(typename, blocks)
     push!(type_params, :(T_xi0<:Tuple))
     push!(type_params, :(T_xd0<:Tuple))
     push!(type_params, :(NT<:NamedTuple))
+    push!(type_params, :(T_t<:Real))
 
     quote
         $blocks
@@ -133,15 +135,13 @@ macro dynamics(typename, blocks)
             x_initial_integrable::T_xi0
             x_initial_direct::T_xd0
 
-            # Auxiliary data and objects (static params and telem sink)
-            static::NT
-            log_sink::LogDataSink
+            component_common::ComponentCommon{T_t, NT}
         end
 
         # constructor for initializing dynamics component from initial state tuples
-        function $(typename_bare)(x_integrable_tuple_in, x_direct_tuple_in, static, telem)
+        function $(typename_bare)(x_integrable_tuple_in, x_direct_tuple_in, component_common)
             return create_dynamics($(typename_bare), $(namify(integrable_state_type)), $(namify(direct_state_type)), $(namify(dynamic_state_type)),
-                                   x_integrable_tuple_in, x_direct_tuple_in, static, telem)
+                                   x_integrable_tuple_in, x_direct_tuple_in, component_common)
         end
     end |> esc
 end
@@ -179,7 +179,7 @@ macro outputs(block)
 end
 
 function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_dynstate}, 
-                         x_integrable_tuple_in, x_direct_tuple_in, static, telem) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}
+                         x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}
     # create the integrable, direct, dynamic state data structures
     istate = T_int(x_integrable_tuple_in...)
     istate_deriv = T_int(x_integrable_tuple_in...)
@@ -195,7 +195,7 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_d
     dstate_fields = fieldnames(typeof(dstate))
     @assert length(intersect(istate_fields, dstate_fields)) == 0 "field names of integrable and direct substates must not have duplicates"
 
-    return T_dyn(dynamic_state, xi_vector, Tuple(x_integrable_tuple_in), Tuple(x_direct_tuple_in), static, telem)
+    return T_dyn(dynamic_state, xi_vector, Tuple(x_integrable_tuple_in), Tuple(x_direct_tuple_in), component_common)
 end
 
 

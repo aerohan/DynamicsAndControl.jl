@@ -23,7 +23,7 @@ function DynamicsAndControl.dynamics!(this::SimpleTestDynamics, ẋ, x, u, t)
     @unpack pos, vel = x
 
     # params
-    @unpack k_spring, mass, c_damping = this.static
+    @unpack k_spring, mass, c_damping = static(this)
 
     # forces
     f = -k_spring*pos - c_damping*vel
@@ -33,7 +33,7 @@ function DynamicsAndControl.dynamics!(this::SimpleTestDynamics, ẋ, x, u, t)
     ẋ.vel = f/mass
     ẋ.q = @SVector [0.0, 0.0]
 
-    log!(this.log_sink, :main, t, (a=vel, b=mass))
+    log!(this, :state, t, (pos=pos, vel=vel, accel=f/mass))
 end
 
 function ode_dynamics!(ẋ, x, u, t)
@@ -54,10 +54,8 @@ function test()
     sol = solve(prob, Tsit5(), dt=0.1, adaptive=false, saveat=0.1)
 
     # DynamicsAndControl
-    sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), tspan)
-    sol2, logs = simulate(sim, Tsit5(), dt=0.1)
-
-    #@infiltrate
+    sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), tspan, Tsit5(), dt=0.1)
+    data, sol2 = simulate(sim)
 
     @test sol.t ≈ sol2.t
     @test sol[1, :] ≈ sol2[1, :]
@@ -70,7 +68,7 @@ end
 function test_compare_performance()
     x0 = (pos=0.5, vel=0.5, q=(@SVector [1.0, 0.0]))
     params = (k_spring=0.6, c_damping=.3, mass=1.0)
-    sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), (0.0, 10.0))
+    sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), (0.0, 10.0), Tsit5(), dt=0.1)
     x_vec = similar(sim.dynamics.x_integrable_vector)
     xd_vec = similar(x_vec)
     display(@benchmark DynamicsAndControl.dynamics_ode_interface!($sim, $xd_vec, $x_vec, 0.5))
