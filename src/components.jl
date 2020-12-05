@@ -30,79 +30,15 @@ end
 # Dynamics
 
 macro dynamics(typename, blocks)
-    # capture parametric types to propagate to substates
-    typename_bare = namify(typename)
-    if @capture(typename, T_{P__})
-        type_params = P
-    else
-        type_params = []
-    end
-
-    # expand substate macros
-    blocks = macroexpand(__module__, blocks)
+    blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, __module__)
 
     # set up the integrable substate
-    integrable_state_type = nothing
-    blocks = MacroTools.prewalk(blocks) do expr
-        if @capture(expr, Placeholder <: IntegrableState)
-            @assert integrable_state_type == nothing "unable to parse, are there multiple @integrable sections?"
-            integrable_state_type = Symbol(typename_bare, "IntegrableState")
-            return :($integrable_state_type <: IntegrableState)
-        else
-            return expr
-        end
-    end
-
-    # handle the unspecified case
-    if integrable_state_type == nothing
-        integrable_state_type = Symbol(typename_bare, "IntegrableState")
-        push!(blocks.args, :(mutable struct $integrable_state_type <: IntegrableState end))
-    end
+    blocks, integrable_state_type = _configure_subcomponent(blocks, typename_bare, type_params, :IntegrableState, "@integrable")
 
     # set up the direct substate
-    direct_state_type = nothing
-    blocks = MacroTools.prewalk(blocks) do expr
-        if @capture(expr, Placeholder <: DirectState)
-            @assert direct_state_type == nothing "unable to parse, are there multiple @direct sections?"
-            direct_state_type = Symbol(typename_bare, "DirectState")
-            return :($direct_state_type <: DirectState)
-        else
-            return expr
-        end
-    end
-
-    # handle the unspecified case
-    if direct_state_type == nothing
-        direct_state_type = Symbol(typename_bare, "DirectState")
-        push!(blocks.args, :(mutable struct $direct_state_type <: DirectState end))
-    end
+    blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, "@direct")
 
     # propagate parametric types
-    blocks = Expr(blocks.head, [begin 
-        if @capture(subblock, mutable struct T_ <: Tsuper_ fields__ end)
-            # the type parameters for this substate should only include the
-            # types actually used in the substate's field types, so intersect
-            # the parameters with the parameters in the field types
-            field_types = [begin
-                @capture(field, f_::Tfield_) || error("all fields must have concrete types")
-                Tfield
-            end for field in fields]
-            intersected_type_params = [param for param in type_params if any(inexpr.(field_types, param))]
-            subblock = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(intersected_type_params...)} <: $(S)) : x, subblock)
-
-            # update the substate type name with the intersected type parameters
-            if length(intersected_type_params) > 0
-                if T == integrable_state_type
-                    integrable_state_type = :($integrable_state_type{$(intersected_type_params...)})
-                elseif T == direct_state_type
-                    direct_state_type = :($direct_state_type{$(intersected_type_params...)})
-                end
-            end
-        end
-
-        subblock
-    end for subblock in blocks.args]...)
-
     if length(type_params) > 0
         dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")){$(type_params...)})
     else
@@ -177,6 +113,79 @@ macro outputs(block)
         end
     end |> esc
 end
+
+# does some initial parsing and macro expansion of the compoment definition macro expression
+function _component_definition_parse_expand(typename, blocks, macro_module)
+    # capture parametric types to propagate to subcomponents
+    typename_bare = namify(typename)
+    if @capture(typename, T_{P__})
+        type_params = P
+    else
+        type_params = []
+    end
+
+    # expand subcomponent macros
+    blocks = macroexpand(macro_module, blocks)
+
+    return blocks, typename_bare, type_params
+end
+
+# configures the subcomponent generated code, by updating the struct name and handling the unspecified case
+#   example subcomponent supertypes: IntegrableState, DirectState, SensorActuatorControllerOutputs, SensorActuatorControllerState
+function _configure_subcomponent(blocks, component_typename_bare::Symbol, component_type_params, subcomponent_supertype::Symbol, subcomponent_macro_name::AbstractString)
+    subcomponent_type_name = nothing
+    blocks = MacroTools.prewalk(blocks) do expr
+        if @capture(expr, Placeholder <: Tsuper_) && Tsuper == subcomponent_supertype
+            @assert subcomponent_type_name == nothing "unable to parse, are there multiple $subcomponent_macro_name sections?"
+            subcomponent_type_name = Symbol(component_typename_bare, subcomponent_supertype)
+            return :($subcomponent_type_name <: $subcomponent_supertype)
+        else
+            return expr
+        end
+    end
+
+    # handle the case where the subcomponent macro is missing, this means we should just make an empty struct for the subcomponent
+    if subcomponent_type_name == nothing
+        subcomponent_type_name = Symbol(component_typename_bare, subcomponent_supertype)
+        push!(blocks.args, :(mutable struct $subcomponent_type_name <: $subcomponent_supertype end))
+    end
+
+    # now update the subcomponent type name by propagating the correct type parameters to it
+    blocks, subcomponent_type_name = _propagate_type_parameters(blocks, subcomponent_type_name, component_type_params)
+
+    return blocks, subcomponent_type_name
+end
+
+# propagate the type parameters of the component, to the type name of the subcomponent 
+#   for example: FooIntegrableState -> FooIntegrableState{T, N} 
+# we need to intersect the type params of the component with the params
+# actually used in this subcomponent so that we can call the subcomponent
+# constructor and have julia infer the types
+function _propagate_type_parameters(blocks, subcomponent_type_name, component_type_params)
+    blocks = Expr(blocks.head, [begin 
+        if @capture(subblock, mutable struct T_ <: Tsuper_ fields__ end) && T == subcomponent_type_name
+            # the type parameters for this subcomponent should only include the
+            # types actually used in the subcomponent's field types, so intersect
+            # the parameters with the parameters in the field types
+            field_types = [begin
+                @capture(field, f_::Tfield_) || error("all fields must have concrete types")
+                Tfield
+            end for field in fields]
+            intersected_type_params = [param for param in component_type_params if any(inexpr.(field_types, param))]
+            subblock = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(intersected_type_params...)} <: $(S)) : x, subblock)
+
+            # update the substate type name with the intersected type parameters
+            if length(intersected_type_params) > 0
+                subcomponent_type_name = :($subcomponent_type_name{$(intersected_type_params...)})
+            end
+        end
+
+        subblock
+    end for subblock in blocks.args]...)
+    
+    return blocks, subcomponent_type_name
+end
+
 
 function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_dynstate}, 
                          x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}

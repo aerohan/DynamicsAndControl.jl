@@ -74,4 +74,4 @@ function compute_ẋ!(sim::Simulation, t)
 end
 
 process_time_span(tspan::Tuple) = tspan[1], tspan[2]
-process_time_span(tfinal::Real) = 0, tfinal
+process_time_span(tfinal::Real) = zero(typeof(tfinal)), tfinal

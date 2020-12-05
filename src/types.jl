@@ -1,16 +1,14 @@
 abstract type Component end
 
 abstract type Dynamics <: Component end
-abstract type Control <: Component end
-abstract type Sensing <: Component end
 
 abstract type DynamicState end
 abstract type IntegrableState end
 abstract type DirectState end
 
-abstract type ControlState end
-abstract type ControlOutputs end
+abstract type SensorActuatorController <: Component end
+abstract type SensorActuator <: SensorActuatorController end
+abstract type Controller <: SensorActuatorController end
 
-abstract type SensorState end
-abstract type SensorOutputs end
-
+abstract type SensorActuatorControllerState end
+abstract type SensorActuatorControllerOutputs end
