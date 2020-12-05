@@ -19,6 +19,13 @@ function initialize(::Type{Component}, config) end
 function dynamics!(::Dynamics, ẋ, x, u, t) end
 function update!(::Dynamics, ẋ, x, u, t) return false end
 
+# Time
+mutable struct SimTime{T}
+    t::T
+end
+set(time::SimTime, t) = (time.t = t)
+get(time::SimTime) = time.t
+
 # Dynamics
 
 macro dynamics(typename, blocks)
@@ -128,7 +135,7 @@ macro dynamics(typename, blocks)
 
             # Auxiliary data and objects (static params and telem sink)
             static::NT
-            telem::TelemetrySink
+            log_sink::LogDataSink
         end
 
         # constructor for initializing dynamics component from initial state tuples
@@ -247,16 +254,12 @@ integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vect
 integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(dynamics.x)
 integrable_scalar_type(dynstate::DynamicState) = integrable_scalar_type(getfield(dynstate, :x_integrable))
 
-function integrable_scalar_type(substate::Union{IntegrableState, DirectState})
+function integrable_scalar_type(substate::IntegrableState)
     ftypes = fieldtypes(typeof(substate))
     return promote_type([integrable_scalar_type(ftype) for ftype in ftypes]...)
 end
 
-integrable_scalar_type(::Type{T}) where T = T
-integrable_scalar_type(::Type{SVector{N, T}}) where {T, N} = T
-integrable_scalar_type(::Type{MVector{N, T}}) where {T, N} = T
-integrable_scalar_type(::Type{SizedVector{N, T}}) where {T, N} = T
-integrable_scalar_type(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
+integrable_scalar_type(::Type{T}) where T = eltype(T)
 
 @generated function set_state!(x::DynamicState, x_integrable_in, x_direct_in)
     out = quote

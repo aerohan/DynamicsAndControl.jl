@@ -22,9 +22,10 @@ export
     DynamicState,
     Dynamics,
     Simulation,
-    TelemetrySink,
+    LogDataSink,
     simulate,
-    create_dynamics
+    create_dynamics,
+    log!
 
 export
     @unpack,

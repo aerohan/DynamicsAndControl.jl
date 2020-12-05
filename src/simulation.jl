@@ -1,18 +1,26 @@
-struct Simulation{D<:Dynamics}
+struct Simulation{D<:Dynamics, T_t<:Real}
     # Components
     dynamics::D
     #sensing::S where S<:Sensing
     #control::C where C<:Control
+    
+    t_current::SimTime{T_t}
+    tspan::Tuple{T_t, T_t}
 
     # Auxiliary
-    telem::TelemetrySink
+    log_sink::LogDataSink
 end
 
-function Simulation(dynamics_args)
+function Simulation(dynamics_args,
+                    tspan)
                     #sensing_args,
                     #control_args)
 
-    telem = TelemetrySink()
+    # set up simulation time span and time object
+    tstart, tfinal = process_time_span(tspan)
+    simtime = SimTime(tstart)
+
+    log_sink = LogDataSink()
 
     # initialize the dynamics component. initial state (with concrete types) is
     # returned by the custom initialize call. the static data named tuple is
@@ -24,14 +32,12 @@ function Simulation(dynamics_args)
     # splatted based positional arguments
     dynamics_namespace, T_dyn, config_dyn = dynamics_args
     istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
-    dynamics = T_dyn(istate_initial, dstate_initial, static_dyn, telem)
+    dynamics = T_dyn(istate_initial, dstate_initial, static_dyn, log_sink)
 
-    return Simulation(dynamics, telem)
+    return Simulation(dynamics, simtime, (tstart, tfinal), log_sink)
 end
 
-function simulate(sim::Simulation, tspan, dt, solver)
-    tstart, tfinal = process_time_span(tspan)
-
+function simulate(sim::Simulation, solver; dt=error("must specify dt"))
     # set up the initial state
     set_state!(sim.dynamics.x, sim.dynamics.x_initial_integrable, sim.dynamics.x_initial_direct)
     copyto!(sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate(sim.dynamics))
@@ -39,7 +45,7 @@ function simulate(sim::Simulation, tspan, dt, solver)
 
     # set up the ODE solver
     ode_func! = (ẋ, x, _, t) -> dynamics_ode_interface!(sim, ẋ, x, t)
-    ode_problem = ODEProblem(ode_func!, x0_vector, (tstart, tfinal))
+    ode_problem = ODEProblem(ode_func!, x0_vector, sim.tspan)
     ode_integrator = init(ode_problem, solver, dt=dt, saveat=dt, adaptive=false)
 
     # simulation loop
@@ -47,7 +53,7 @@ function simulate(sim::Simulation, tspan, dt, solver)
 
     end
 
-    return ode_integrator.sol
+    return ode_integrator.sol, sim.log_sink.data
 end
 
 function dynamics_ode_interface!(sim, ẋ, x, t)
