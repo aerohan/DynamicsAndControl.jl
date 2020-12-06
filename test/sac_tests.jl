@@ -61,10 +61,10 @@ end
 DynamicsAndControl.initialize(::Type{ScalarTestDynamics}, config) = (1.0,), (), NamedTuple()
 function DynamicsAndControl.dynamics!(this::ScalarTestDynamics, ẋ, x, u, t)
     ẋ.val = -.05*x.val + u.ctrl
-    println("\tdynamics: t=$t, ẋ=$(ẋ.val), x=$(x.val), u=$(u.ctrl)")
+    #println("\tdynamics: t=$t, ẋ=$(ẋ.val), x=$(x.val), u=$(u.ctrl)")
 end
 function DynamicsAndControl.update!(this::ScalarTestDynamics, ẋ, x, u, t)
-    println("\tdynamics update, t=$t")
+    #println("\tdynamics update, t=$t")
     log!(this, :state, t, (x=x.val, ẋ=ẋ.val, u=u.ctrl))
     return true
 end
@@ -77,7 +77,7 @@ end
 DynamicsAndControl.initialize(::Type{ScalarTestSensor}, config) = (), (1.0,), NamedTuple()
 function DynamicsAndControl.update!(this::ScalarTestSensor, y, _, x, t)
     y.val_sns = x.val*1.2
-    println("\tsensor: t=$t, y=$(y.val_sns), x=$(x.val)")
+    #println("\tsensor: t=$t, y=$(y.val_sns), x=$(x.val)")
 end
 
 @actuator ScalarTestActuator{T} begin
@@ -88,7 +88,7 @@ end
 DynamicsAndControl.initialize(::Type{ScalarTestActuator}, config) = (), (1.0,), NamedTuple()
 function DynamicsAndControl.update!(this::ScalarTestActuator, u_out, _, u_in, t)
     u_out.ctrl = u_in.ctrl
-    println("\tactuator: t=$t, u=$(u_out.ctrl)")
+    #println("\tactuator: t=$t, u=$(u_out.ctrl)")
 end
 
 @controller ScalarTestController{T, I<:Int} begin
@@ -104,7 +104,7 @@ DynamicsAndControl.initialize(::Type{ScalarTestController}, config) = (0,), (1.0
 function DynamicsAndControl.update!(this::ScalarTestController, u, control_state, y, t)
     u.ctrl = Float64(control_state.counter) + y.val_sns
     control_state.counter += 1
-    println("\tcontroller: t=$t, u=$(u.ctrl)")
+    #println("\tcontroller: t=$t, u=$(u.ctrl)")
 end
 
 function test_components()
@@ -128,8 +128,6 @@ function test_sim()
                          10.0, RK4(), dt=1.0
                     )
     data, sol = simulate(sim)
-
-    @infiltrate
 end
 
 test_components()

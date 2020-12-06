@@ -42,6 +42,13 @@ function Simulation(dynamics_args,
     return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, log_sink)
 end
 
+function Simulation(dynamics_args, tspan, solver; dt=error("must specify dt"))
+    sensor_args = (Symbol(), NoSensor, ())
+    controller_args = (Symbol(), NoController, ())
+    actuator_args = (Symbol(), NoActuator, ())
+    return Simulation(dynamics_args, sensor_args, controller_args, actuator_args, tspan, solver, dt=dt)
+end
+
 function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, log_sink)
     namespace, T_dyn, config_dyn = dynamics_args
     istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
