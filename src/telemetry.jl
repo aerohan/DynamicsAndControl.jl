@@ -27,10 +27,7 @@ function log!(component::Component, flow, t, current_data::NamedTuple)
 
     augmented_flow_namespace = (namespace(component), make_tuple(flow)...)
 
-    # typically log on first of these conditions. second condition handles the
-    # edge case where the state is updated between integration steps, so FSAL
-    # is broken and the dynamics is called again at the beginning of the
-    # integration step
+    # log at either the end or start of an integration step
     if get(simtime(component)) + sim_dt(component) ≈ t || get(simtime(component)) ≈ t
         log!(log_sink(component), augmented_flow_namespace, t, current_data)
     end

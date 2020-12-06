@@ -42,10 +42,24 @@ function Simulation(dynamics_args,
     return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, log_sink)
 end
 
+# dynamics only, no control
 function Simulation(dynamics_args, tspan, solver; dt=error("must specify dt"))
     sensor_args = (Symbol(), NoSensor, ())
     controller_args = (Symbol(), NoController, ())
     actuator_args = (Symbol(), NoActuator, ())
+    return Simulation(dynamics_args, sensor_args, controller_args, actuator_args, tspan, solver, dt=dt)
+end
+
+# dynamics and control, full state feedback and directly use controller outputs in dynamics
+function Simulation(dynamics_args, controller_args, tspan, solver; dt=error("must specify dt"))
+    sensor_args = (Symbol(), FullStateSensor, ())
+    actuator_args = (Symbol(), PassthroughActuator, ())
+    return Simulation(dynamics_args, sensor_args, controller_args, actuator_args, tspan, solver, dt=dt)
+end
+
+# dynamics, sensing, and control, directly use controller outputs in dynamics
+function Simulation(dynamics_args, sensor_args, controller_args, tspan, solver; dt=error("must specify dt"))
+    actuator_args = (Symbol(), PassthroughActuator, ())
     return Simulation(dynamics_args, sensor_args, controller_args, actuator_args, tspan, solver, dt=dt)
 end
 

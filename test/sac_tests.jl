@@ -130,5 +130,47 @@ function test_sim()
     data, sol = simulate(sim)
 end
 
+@dynamics ScalarTestDynamics2{T} begin
+    @integrable begin
+        val::T
+    end
+end
+DynamicsAndControl.initialize(::Type{ScalarTestDynamics2}, config) = (1.0,), (), NamedTuple()
+function DynamicsAndControl.dynamics!(this::ScalarTestDynamics2, ẋ, x, u, t)
+    ẋ.val = -.05*x.val + u.ctrl
+    #println("\tdynamics: t=$t, ẋ=$(ẋ.val), x=$(x.val), u=$(u.ctrl)")
+end
+function DynamicsAndControl.update!(this::ScalarTestDynamics2, ẋ, x, u, t)
+    #println("\tdynamics update, t=$t")
+    log!(this, :state, t, (x=x.val, ẋ=ẋ.val, u=u.ctrl))
+    return true
+end
+
+@controller ScalarTestController2{T, I<:Int} begin
+    @state begin
+        counter::I
+    end
+
+    @outputs begin
+        ctrl::T
+    end
+end
+DynamicsAndControl.initialize(::Type{ScalarTestController2}, config) = (0,), (1.0,), NamedTuple()
+function DynamicsAndControl.update!(this::ScalarTestController2, u, control_state, y, t)
+    u.ctrl = Float64(control_state.counter) + y.val
+    control_state.counter += 1
+    #println("\tcontroller: t=$t, u=$(u.ctrl)")
+end
+
+function test_passthrough_sensor_actuator()
+    sim = Simulation( 
+                         ( :truth, ScalarTestDynamics2, () ), 
+                         ( :controller, ScalarTestController2, () ), 
+                         10.0, RK4(), dt=1.0
+                    )
+    data, sol = simulate(sim)
+end
+
 test_components()
 test_sim()
+test_passthrough_sensor_actuator()

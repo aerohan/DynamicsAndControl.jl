@@ -282,10 +282,7 @@ end
 
 _strip_type_param(param::Symbol) = param
 _strip_type_param(param::Expr) = @capture(param, Tp_ <: Tpsuper_) && return Tp
-
 _strip_super_typename(expr) = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($T1) : x, expr)
-
-
 
 # provide getproperty/setproperty! interface to DynamicState to access substate fields
 Base.getproperty(x::DynamicState, sym::Symbol) = Base.getproperty(x, Val(sym))
