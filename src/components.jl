@@ -2,12 +2,15 @@ function initialize(::Type{Component}, config) end
 
 simtime(c::Component) = c.component_common.simtime
 sim_dt(c::Component) = c.component_common.simulation_dt
+component_dt(c::Component) = c.component_common.component_dt
 namespace(c::Component) = c.component_common.namespace
 log_sink(c::Component) = c.component_common.log_sink
 static(c::Component) = c.component_common.static
 
-function dynamics!(::Dynamics, ẋ, x, u, t) end
+function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
+
+function update!(::SensorActuatorController, output, state, input, t) return nothing end
 
 # Time
 mutable struct SimTime{T}
@@ -20,6 +23,7 @@ struct ComponentCommon{T_t, NT}
     # Global sim time
     simtime::SimTime{T_t}
     simulation_dt::T_t
+    component_dt::T_t
 
     # Auxiliary data and objects (static params and telem sink)
     static::NT
@@ -55,9 +59,9 @@ macro dynamics(typename, blocks)
         $blocks
 
         struct $(dynamic_state_type) <: DynamicState
-            x_integrable::$(integrable_state_type)
-            ẋ_integrable::$(integrable_state_type)
-            x_direct::$(direct_state_type)
+            x_integrable::$(_strip_super_typename(integrable_state_type))
+            ẋ_integrable::$(_strip_super_typename(integrable_state_type))
+            x_direct::$(_strip_super_typename(direct_state_type))
         end
 
         struct $(typename_bare){$(type_params...)} <: Dynamics
@@ -98,9 +102,22 @@ macro direct(block)
     end |> esc
 end
 
+# Sensor, Actuator, Controller
+macro sensor(typename, block)
+    return _sensor_actuator_controller_setup(typename, block, :Sensor, __module__)
+end
+
+macro actuator(typename, block)
+    return _sensor_actuator_controller_setup(typename, block, :Actuator, __module__)
+end
+
+macro controller(typename, block)
+    return _sensor_actuator_controller_setup(typename, block, :Controller, __module__)
+end
+
 macro state(block)
     return quote
-        mutable struct Placeholder <: PlaceholderState
+        mutable struct Placeholder <: SensorActuatorControllerState
             $(block.args...)
         end
     end |> esc
@@ -108,8 +125,48 @@ end
 
 macro outputs(block)
     return quote
-        mutable struct Placeholder <: PlaceholderOutputs
+        mutable struct Placeholder <: SensorActuatorControllerOutputs
             $(block.args...)
+        end
+    end |> esc
+end
+
+function _sensor_actuator_controller_setup(typename, blocks, component_supertype_name, macro_module)
+    blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, macro_module)
+
+    # set up the integrable substate
+    blocks, state_type = _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerState, "@state")
+
+    # set up the direct substate
+    blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, "@output")
+
+    push!(type_params, :(T_x0<:Tuple))
+    push!(type_params, :(NT<:NamedTuple))
+    push!(type_params, :(T_t<:Real))
+
+    quote
+        $blocks
+
+        struct $(typename_bare){$(type_params...)} <: $component_supertype_name
+            # Main state/output data structure
+            state::$(_strip_super_typename(state_type))
+            outputs::$(_strip_super_typename(output_type))
+
+            # Tuple holding initial state data
+            state_initial::T_x0
+
+            component_common::ComponentCommon{T_t, NT}
+        end
+
+        # constructor for initializing component from initial state/output tuples
+        function $(typename_bare)(state_tuple_in, output_tuple_in, component_common)
+            return create_sensor_actuator_controller($(typename_bare), $(namify(state_type)), $(namify(output_type)),
+                                   state_tuple_in, output_tuple_in, component_common)
+        end
+
+        # constructor with argument for input component, ignored in this case
+        function $(typename_bare)(state_tuple_in, output_tuple_in, component_common, input_component)
+            return $(typename_bare)(state_tuple_in, output_tuple_in, component_common)
         end
     end |> esc
 end
@@ -171,7 +228,8 @@ function _propagate_type_parameters(blocks, subcomponent_type_name, component_ty
                 @capture(field, f_::Tfield_) || error("all fields must have concrete types")
                 Tfield
             end for field in fields]
-            intersected_type_params = [param for param in component_type_params if any(inexpr.(field_types, param))]
+
+            intersected_type_params = [param for param in component_type_params if any(inexpr.(field_types, _strip_type_param(param)))]
             subblock = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($(T1){$(intersected_type_params...)} <: $(S)) : x, subblock)
 
             # update the substate type name with the intersected type parameters
@@ -185,7 +243,6 @@ function _propagate_type_parameters(blocks, subcomponent_type_name, component_ty
     
     return blocks, subcomponent_type_name
 end
-
 
 function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_dynstate}, 
                          x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}
@@ -206,6 +263,21 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_d
 
     return T_dyn(dynamic_state, xi_vector, Tuple(x_integrable_tuple_in), Tuple(x_direct_tuple_in), component_common)
 end
+
+function create_sensor_actuator_controller(::Type{T_sac}, ::Type{T_state}, ::Type{T_out},
+                         state_tuple_in, output_tuple_in, component_common) where {T_sac<:SensorActuatorController, T_state<:SensorActuatorControllerState, T_out<:SensorActuatorControllerOutputs}
+    # create the state and output data structures
+    state = T_state(state_tuple_in...)
+    outputs = T_out(output_tuple_in...)
+
+    return T_sac(state, outputs, state_tuple_in, component_common)
+end
+
+_strip_type_param(param::Symbol) = param
+_strip_type_param(param::Expr) = @capture(param, Tp_ <: Tpsuper_) && return Tp
+
+_strip_super_typename(expr) = MacroTools.postwalk(x->@capture(x, T1_ <: S_) ? :($T1) : x, expr)
+
 
 
 # provide getproperty/setproperty! interface to DynamicState to access substate fields

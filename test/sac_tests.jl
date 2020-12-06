@@ -20,15 +20,60 @@ using StaticArrays
     end
 end
 
-function DynamicsAndControl.initialize(::Type{SensorFoo}, init_config)
-    initial_state = (a=1.0, b=(@SVector [1.0, 2.0, 3.0]), c=2.0, w=init_config.w0, e=(@MVector [2.0, 5.1, 7.2, 1.4]))
-    initial_output = (f=false, g=1.0)
-    static = init_config
+@actuator ActuatorFoo{T, N1, N2, S} begin
+    @state begin
+        a::T
+        b::SVector{N1, T}
+        c::T
+        d::T
+        e::MVector{N2, T}
+    end
 
-    # returns a tuple of ([initial integrable state], [initial direct state], [configuration parameters])
-    return initial_state, initial_output, static
+    @outputs begin
+        f::S
+        g::T
+    end
 end
 
-function test()
+@controller ControllerFoo{T, N1, N2, S} begin
+    @state begin
+        a::T
+        b::SVector{N1, T}
+        c::T
+        d::T
+        e::MVector{N2, T}
+    end
 
+    @outputs begin
+        f::S
+        g::T
+    end
+end
+
+@dynamics ScalarTestDynamics{T} begin
+    @integrable begin
+        x::T
+    end
+end
+
+@sensor ScalarTestSensor{T} begin
+    @outputs begin
+        x_sns::T
+    end
+end
+
+@actuator ScalarTestActuator{T} begin
+    @outputs begin
+        u::T
+    end
+end
+
+@controller ScalarTestController{T, I<:Int} begin
+    @state begin
+        counter::I
+    end
+
+    @outputs begin
+        u::T
+    end
 end

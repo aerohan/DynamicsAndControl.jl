@@ -24,20 +24,53 @@ function Simulation(dynamics_args,
 
     log_sink = LogDataSink()
 
-    # initialize the dynamics component. initial state (with concrete types) is
-    # returned by the custom initialize call. the static data named tuple is
-    # also returned
+    # initialize each of the components. initial states/outputs (with concrete
+    # types) is returned by the custom initialize call. the static data named
+    # tuple is also returned
     #
-    # NOTE: initial states should be a tuple with order corresponding to the
-    # the fields of the substate struct. they may be written as named tuples
-    # for clarity, but the correct order must be maintained, since the tuple is
-    # splatted based positional arguments
-    dynamics_namespace, T_dyn, config_dyn = dynamics_args
-    istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
-    component_common = ComponentCommon(simtime, dt, static_dyn, log_sink, dynamics_namespace)
-    dynamics = T_dyn(istate_initial, dstate_initial, component_common)
+    # NOTE: initial states/outputs should be a tuple with order corresponding
+    # to the the fields of the subcomponent struct. they may be written as
+    # named tuples for clarity, but the correct order must be maintained, since
+    # the tuple is splatted based positional arguments
+    dynamics = _setup(Dynamics, dynamics_args, simtime, dt, log_sink)
 
     return Simulation(dynamics, simtime, (tstart, tfinal), dt, solver, log_sink)
+end
+
+function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, log_sink)
+    namespace, T_dyn, config_dyn = dynamics_args
+    istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
+    component_common = ComponentCommon(simtime, dt, dt, static_dyn, log_sink, namespace)
+    dynamics = T_dyn(istate_initial, dstate_initial, component_common)
+
+    return dynamics
+end
+
+function _setup(::Type{Sensor}, sensor_args, simtime, dt, log_sink, dynamics)
+    namespace, T_s, config_s = sensor_args
+    state_initial, outputs_initial, static_s = initialize(T_s, config_s)
+    component_common = ComponentCommon(simtime, dt, dt, static_s, log_sink, namespace)
+    sensor = T_s(state_initial, outputs_initial, component_common, dynamics)
+
+    return sensor
+end
+
+function _setup(::Type{Controller}, controller_args, simtime, dt, log_sink)
+    namespace, T_c, config_c = controller_args
+    state_initial, outputs_initial, static_c = initialize(T_c, config_c)
+    component_common = ComponentCommon(simtime, dt, dt, static_c, log_sink, namespace)
+    controller = T_c(state_initial, outputs_initial, component_common)
+
+    return controller
+end
+
+function _setup(::Type{Actuator}, actuator_args, simtime, dt, log_sink, controller)
+    namespace, T_a, config_a = actuator_args
+    state_initial, outputs_initial, static_a = initialize(T_a, config_a)
+    component_common = ComponentCommon(simtime, dt, dt, static_a, log_sink, namespace)
+    actuator = T_a(state_initial, outputs_initial, component_common, controller)
+
+    return actuator
 end
 
 function simulate(sim::Simulation)
