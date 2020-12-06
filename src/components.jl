@@ -10,7 +10,14 @@ static(c::Component) = c.component_common.static
 function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
 
+integrable_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_integrable)
+integrable_substate_derivative(dynamics::Dynamics) = getfield(dynamics.x, :ẋ_integrable)
+direct_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_direct)
+state(dyn::Dynamics) = dyn.x
+
 function update!(::SensorActuatorController, output, state, input, t) return nothing end
+outputs(sac::SensorActuatorController) = sac.outputs
+state(sac::SensorActuatorController) = sac.state
 
 # Time
 mutable struct SimTime{T}
@@ -37,10 +44,10 @@ macro dynamics(typename, blocks)
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, __module__)
 
     # set up the integrable substate
-    blocks, integrable_state_type = _configure_subcomponent(blocks, typename_bare, type_params, :IntegrableState, "@integrable")
+    blocks, integrable_state_type = _configure_subcomponent(blocks, typename_bare, type_params, :IntegrableState, :IntegrableState, "@integrable")
 
     # set up the direct substate
-    blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, "@direct")
+    blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, :DirectState, "@direct")
 
     # propagate parametric types
     if length(type_params) > 0
@@ -135,10 +142,10 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, macro_module)
 
     # set up the integrable substate
-    blocks, state_type = _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerState, "@state")
+    blocks, state_type = _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerState, :State, "@state")
 
     # set up the direct substate
-    blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, "@output")
+    blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, :Outputs, "@output")
 
     push!(type_params, :(T_x0<:Tuple))
     push!(type_params, :(NT<:NamedTuple))
@@ -189,12 +196,12 @@ end
 
 # configures the subcomponent generated code, by updating the struct name and handling the unspecified case
 #   example subcomponent supertypes: IntegrableState, DirectState, SensorActuatorControllerOutputs, SensorActuatorControllerState
-function _configure_subcomponent(blocks, component_typename_bare::Symbol, component_type_params, subcomponent_supertype::Symbol, subcomponent_macro_name::AbstractString)
+function _configure_subcomponent(blocks, component_typename_bare::Symbol, component_type_params, subcomponent_supertype::Symbol, subcomponent_suffix::Symbol, subcomponent_macro_name::AbstractString)
     subcomponent_type_name = nothing
     blocks = MacroTools.prewalk(blocks) do expr
         if @capture(expr, Placeholder <: Tsuper_) && Tsuper == subcomponent_supertype
             @assert subcomponent_type_name == nothing "unable to parse, are there multiple $subcomponent_macro_name sections?"
-            subcomponent_type_name = Symbol(component_typename_bare, subcomponent_supertype)
+            subcomponent_type_name = Symbol(component_typename_bare, subcomponent_suffix)
             return :($subcomponent_type_name <: $subcomponent_supertype)
         else
             return expr
@@ -203,7 +210,7 @@ function _configure_subcomponent(blocks, component_typename_bare::Symbol, compon
 
     # handle the case where the subcomponent macro is missing, this means we should just make an empty struct for the subcomponent
     if subcomponent_type_name == nothing
-        subcomponent_type_name = Symbol(component_typename_bare, subcomponent_supertype)
+        subcomponent_type_name = Symbol(component_typename_bare, subcomponent_suffix)
         push!(blocks.args, :(mutable struct $subcomponent_type_name <: $subcomponent_supertype end))
     end
 
@@ -308,10 +315,6 @@ Base.setproperty!(x::DynamicState, sym::Symbol, value) = Base.setproperty!(x, Va
         error("\"$sym\" does not match any field in the DynamicState (neither integrable nor direct substates)")
     end
 end
-
-integrable_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_integrable)
-integrable_substate_derivative(dynamics::Dynamics) = getfield(dynamics.x, :ẋ_integrable)
-direct_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_direct)
 
 integrable_size(dynamics::Dynamics) = integrable_size(dynamics.x)
 integrable_size(dynstate::DynamicState) = integrable_size(getfield(dynstate, :x_integrable))
