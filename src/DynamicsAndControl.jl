@@ -4,6 +4,7 @@ using MacroTools
 using StaticArrays
 using OrdinaryDiffEq
 using UnPack
+using RecipesBase
 
 # debugging only
 using Infiltrator

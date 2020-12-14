@@ -40,8 +40,8 @@ function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple)
     if !haskey(log_sink.data, flow)
         log_sink.data[flow] = Dict{Symbol, Vector}()
         for (k, T) in zip(keys(current_data), fieldtypes(typeof(current_data)))
-            log_sink.data[flow][k] = T[]
             k != :time || error("\"time\" is a reserved channel name for logging")
+            log_sink.data[flow][k] = T[]
         end
         log_sink.data[flow][:time] = typeof(t)[]
     end
@@ -91,23 +91,56 @@ struct SimulationDataSubset{N}
     dataset::SimulationDataset
     flow_sub_id::NTuple{N, Symbol}
 end
+SimulationDataSubset(s::SimulationDataSubset, flow_sub_id) = SimulationDataSubset(dataset(s), flow_sub_id)
+dataset(s::SimulationDataSubset) = getfield(s, :dataset)
+data(s::SimulationDataSubset) = getfield(dataset(s), :data).data
+id(s::SimulationDataSubset) = getfield(s, :flow_sub_id)
+
+function Base.show(io::IO, datasubset::SimulationDataSubset{N}) where N
+    println(io, "Simulation data set with immediate namespaces:")
+    sim_data = data(datasubset)
+    flow_id = LogDataFlowId(id(datasubset))
+    print(io, "\t")
+    println(io, unique([k.id[N+1] for k in keys(sim_data) if _startswith(k, flow_id)]))
+end
+Base.show(io::IO, dataset::SimulationDataset) = show(io, SimulationDataSubset(dataset, ()))
 
 struct FlowData
     data::Dict{Symbol, Vector}
 end
+data(fd::FlowData) = getfield(fd, :data)
+
+struct DataSeries{T}
+    series::Vector{T}
+end
+Base.show(io::IO, m::MIME"text/plain", ds::DataSeries) = show(io, m, ds.series)
+
+_startswith(id1::LogDataFlowId, id2::LogDataFlowId) = all([ns1 == ns2 for (ns1, ns2) in zip(id1.id, id2.id)])
 
 function Base.getproperty(datasubset::SimulationDataSubset, name::Symbol)
-    sub_id = getfield(datasubset, :flow_sub_id)
-    dataset = getfield(datasubset, :dataset)
-    full_id = (sub_id..., name)
+    full_id = (id(datasubset)..., name)
+    sim_data = data(datasubset)
     flow_id = LogDataFlowId(full_id)
-    if flow_id in keys(getfield(dataset, :data).data)
-        return FlowData(getfield(dataset, :data).data[flow_id])
+    if flow_id in keys(sim_data)
+        return FlowData(sim_data[flow_id])
+    elseif any([_startswith(k, flow_id) for k in keys(sim_data)])
+        return SimulationDataSubset(datasubset, full_id)
     else
-        return SimulationDataSubset(dataset, full_id)
+        error("\"$full_id\" not found in simulation dataset")
     end
 end
 Base.getproperty(dataset::SimulationDataset, name::Symbol) = getproperty(SimulationDataSubset(dataset, ()), name)
 
-Base.getproperty(flow_data::FlowData, name::Symbol) = getfield(flow_data, :data)[name]
+Base.getproperty(flow_data::FlowData, name::Symbol) = DataSeries(getfield(flow_data, :data)[name])
 
+function Base.show(io::IO, flow_data::FlowData)
+    println(io, "Simulation data flow with channels:")
+    print(io, "\t")
+    println(io, keys(data(flow_data)))
+end
+Base.show(io::IO, dataset::SimulationDataset) = show(io, SimulationDataSubset(dataset, ()))
+
+@recipe _handle_dataseries(::Type{T}, val::T) where{T<:DataSeries} = val.series
+
+Base.getindex(ds::DataSeries{T}, i::Int) where {T<:AbstractVector} = map(val->val[i], ds.series)
+Base.getindex(ds::DataSeries{T}) where {T<:Real} = ds.series
