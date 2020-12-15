@@ -19,9 +19,9 @@ direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
 integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
 
 function update!(::SensorActuatorController, output, state, input, t) return nothing end
-component_data(sac::SensorActuatorController) = sac.component_data
-outputs(sac::SensorActuatorController) = sac.outputs
-state(sac::SensorActuatorController) = sac.state
+component_data(sac::SensorActuatorController) = sac.data.component_data
+outputs(sac::SensorActuatorController) = sac.data.outputs
+state(sac::SensorActuatorController) = sac.data.state
 
 # Time
 mutable struct SimTime{T}
@@ -105,6 +105,18 @@ macro direct(block)
 end
 
 # Sensor, Actuator, Controller
+struct SensorActuatorControllerData{T_state<:SensorActuatorControllerState,T_out<:SensorActuatorControllerOutputs,T_x0<:Tuple,C<:ComponentData}
+    # Main state/output data structure
+    state::T_state
+    outputs::T_out
+
+    # Tuple holding initial state data
+    state_initial::T_x0
+
+    # Data common to all components
+    component_data::C
+end
+
 macro sensor(typename, block)
     return _sensor_actuator_controller_setup(typename, block, :Sensor, __module__)
 end
@@ -142,25 +154,11 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
     # set up the outputs
     blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, :Outputs, "@output")
 
-    sac_type_params = []
-    push!(sac_type_params, :(T_state<:$(namify(state_type))))
-    push!(sac_type_params, :(T_out<:$(namify(output_type))))
-    push!(sac_type_params, :(T_x0<:Tuple))
-    push!(sac_type_params, :(NT<:NamedTuple))
-    push!(sac_type_params, :(T_t<:Real))
-
     quote
         $blocks
 
-        struct $(typename_bare){$(sac_type_params...)} <: $component_supertype_name
-            # Main state/output data structure
-            state::T_state
-            outputs::T_out
-
-            # Tuple holding initial state data
-            state_initial::T_x0
-
-            component_data::ComponentData{T_t, NT}
+        struct $(typename_bare){D<:SensorActuatorControllerData} <: $component_supertype_name
+            data::D
         end
 
         # constructor for initializing component from initial state/output tuples
@@ -306,8 +304,9 @@ function create_sensor_actuator_controller(::Type{T_sac}, ::Type{T_state}, ::Typ
     # create the state and output data structures
     state = T_state(state_tuple_in...)
     outputs = T_out(output_tuple_in...)
+    data = SensorActuatorControllerData(state, outputs, state_tuple_in, component_data)
 
-    return T_sac(state, outputs, state_tuple_in, component_data)
+    return T_sac(data)
 end
 
 _strip_type_param(param::Symbol) = param

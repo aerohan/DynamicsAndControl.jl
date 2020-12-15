@@ -11,7 +11,7 @@ function test1()
     b = 2.0
     idx = 0
     while t <= 10.0
-        println("logging at t = $t")
+        #println("logging at t = $t")
         log!(log_sink, (:truth, :test), t, (; a, b))
 
         # repeat logs at same time instance and ensure they are correctly handled
@@ -30,8 +30,6 @@ function test1()
     @test logged[:b] ≈ [2.0, -4.0, -12.0, 4.0, 52.0, 36.0, -172.0, -316.0, 372.0, 1636.0, 148.0]
 
     data = SimulationDataset(log_sink)
-
-    @infiltrate
 
 end
 

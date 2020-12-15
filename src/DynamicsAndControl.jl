@@ -38,6 +38,7 @@ export
     SensorActuatorControllerOutputs,
     ComponentData,
     DynamicsData,
+    SensorActuatorControllerData,
     LogDataSink,
     simulate,
     create_dynamics,
