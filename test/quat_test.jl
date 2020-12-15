@@ -5,7 +5,7 @@ using Rotations
 
 @dynamics QuatTestDynamics{T} begin
     @integrable begin
-        q::Quat{T}
+        q::UnitQuaternion{T}
     end
 
     @direct begin

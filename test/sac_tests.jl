@@ -127,7 +127,7 @@ function test_sim()
                          ( :actuator, ScalarTestActuator, () ), 
                          10.0, RK4(), dt=1.0
                     )
-    data, sol = simulate(sim)
+    data = simulate(sim)
 end
 
 @dynamics ScalarTestDynamics2{T} begin
@@ -168,7 +168,7 @@ function test_passthrough_sensor_actuator()
                          ( :controller, ScalarTestController2, () ), 
                          10.0, RK4(), dt=1.0
                     )
-    data, sol = simulate(sim)
+    data = simulate(sim)
 end
 
 test_components()

@@ -33,7 +33,7 @@ function DynamicsAndControl.dynamics!(this::SimpleTestDynamics, ẋ, x, u, t)
     ẋ.vel = f/mass
     ẋ.q = @SVector [0.0, 0.0]
 
-    log!(this, :state, t, (pos=pos, vel=vel, accel=f/mass))
+    log!(this, :state, t, (pos, vel, q=x.q, accel=f/mass))
 end
 
 function ode_dynamics!(ẋ, x, u, t)
@@ -55,13 +55,15 @@ function test()
 
     # DynamicsAndControl
     sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), tspan, Tsit5(), dt=0.1)
-    data, sol2 = simulate(sim)
+    data = simulate(sim)
 
-    @test sol.t ≈ sol2.t
-    @test sol[1, :] ≈ sol2[1, :]
-    @test sol[2, :] ≈ sol2[2, :]
-    @test all(sol2[3, :] .≈ 1.0)
-    @test all(sol2[4, :] .≈ 0.0)
+    state = data.truth.state
+
+    @test all(sol.t .≈ state.time)
+    @test all(sol[1, :] .≈ state.pos)
+    @test all(sol[2, :] .≈ state.vel)
+    @test all(state.q[1] .≈ 1.0)
+    @test all(state.q[2] .≈ 0.0)
 
 end
 
