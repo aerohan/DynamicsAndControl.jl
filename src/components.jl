@@ -50,31 +50,34 @@ macro dynamics(typename, blocks)
     # set up the direct substate
     blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, :DirectState, "@direct")
 
-    # propagate parametric types
-    if length(type_params) > 0
-        dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")){$(type_params...)})
-    else
-        dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")))
-    end
+    # set up the dynamic state
+    dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")))
 
-    push!(type_params, :(V<:AbstractVector))
-    push!(type_params, :(T_xi0<:Tuple))
-    push!(type_params, :(T_xd0<:Tuple))
-    push!(type_params, :(NT<:NamedTuple))
-    push!(type_params, :(T_t<:Real))
+    dynamic_state_type_params = []
+    push!(dynamic_state_type_params, :(T_int<:$(namify(integrable_state_type))))
+    push!(dynamic_state_type_params, :(T_intd<:$(namify(integrable_derivative_type))))
+    push!(dynamic_state_type_params, :(T_dir<:$(namify(direct_state_type))))
+
+    dynamics_type_params = []
+    push!(dynamics_type_params, :(T_dyn<:$(namify(dynamic_state_type))))
+    push!(dynamics_type_params, :(V<:AbstractVector))
+    push!(dynamics_type_params, :(T_xi0<:Tuple))
+    push!(dynamics_type_params, :(T_xd0<:Tuple))
+    push!(dynamics_type_params, :(NT<:NamedTuple))
+    push!(dynamics_type_params, :(T_t<:Real))
 
     quote
         $blocks
 
-        struct $(dynamic_state_type) <: DynamicState
-            x_integrable::$(_strip_super_typename(integrable_state_type))
-            ẋ_integrable::$(_strip_super_typename(integrable_derivative_type))
-            x_direct::$(_strip_super_typename(direct_state_type))
+        struct $(dynamic_state_type){$(dynamic_state_type_params...)} <: DynamicState
+            x_integrable::T_int
+            ẋ_integrable::T_intd
+            x_direct::T_dir
         end
 
-        struct $(typename_bare){$(type_params...)} <: Dynamics
+        struct $(typename_bare){$(dynamics_type_params...)} <: Dynamics
             # Dynamic state (superset of integrable and direct substates)
-            x::$(dynamic_state_type)
+            x::T_dyn
 
             # Integrable state vector representation for ODE interface
             x_integrable_vector::V
@@ -149,17 +152,20 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
     # set up the outputs
     blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, :Outputs, "@output")
 
-    push!(type_params, :(T_x0<:Tuple))
-    push!(type_params, :(NT<:NamedTuple))
-    push!(type_params, :(T_t<:Real))
+    sac_type_params = []
+    push!(sac_type_params, :(T_state<:$(namify(state_type))))
+    push!(sac_type_params, :(T_out<:$(namify(output_type))))
+    push!(sac_type_params, :(T_x0<:Tuple))
+    push!(sac_type_params, :(NT<:NamedTuple))
+    push!(sac_type_params, :(T_t<:Real))
 
     quote
         $blocks
 
-        struct $(typename_bare){$(type_params...)} <: $component_supertype_name
+        struct $(typename_bare){$(sac_type_params...)} <: $component_supertype_name
             # Main state/output data structure
-            state::$(_strip_super_typename(state_type))
-            outputs::$(_strip_super_typename(output_type))
+            state::T_state
+            outputs::T_out
 
             # Tuple holding initial state data
             state_initial::T_x0
@@ -278,6 +284,10 @@ function _configure_integrable_derivative(blocks, typename_bare)
     end
 
     push!(blocks.args, ideriv_def)
+
+    #if length(T_params) > 0
+    #    ideriv_typename = :($ideriv_typename{$(T_params...)})
+    #end
 
     return blocks, ideriv_typename
 end

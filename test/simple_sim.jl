@@ -73,6 +73,7 @@ function test_compare_performance()
     sim = Simulation( ( :truth, SimpleTestDynamics, (x0=x0, params=params) ), (0.0, 10.0), Tsit5(), dt=0.1)
     x_vec = similar(sim.dynamics.x_integrable_vector)
     xd_vec = similar(x_vec)
+    #@code_warntype DynamicsAndControl.dynamics_ode_interface!(sim, xd_vec, x_vec, 0.5)
     display(@benchmark DynamicsAndControl.dynamics_ode_interface!($sim, $xd_vec, $x_vec, 0.5))
 
     x_vec = similar([x0.pos, x0.vel, x0.q[1], x0.q[2]])
