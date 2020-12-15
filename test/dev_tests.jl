@@ -2,6 +2,7 @@ using Test
 using BenchmarkTools
 
 using DynamicsAndControl
+using DynamicsAndControl: integrable_substate, integrable_vector, state
 import DynamicsAndControl
 using StaticArrays
 using OrdinaryDiffEq
@@ -32,34 +33,34 @@ end
 
 function test()
     sim = Simulation( ( :truth, DynamicsFoo, (w0=4.0,) ), 0.0, RK4(), dt=0.1)
-    DynamicsAndControl.set_state!(sim.dynamics.x, (a=4.1, b=(@SVector [7.0, 2.0, 3.0]), c=3.2, d=3.0, e=(@MVector [2.0, 5.1, 7.2, 1.4])), (f=true, g=1.4))
-    @test sim.dynamics.x.a == 4.1
-    @test sim.dynamics.x.b[2] == 2
-    @test sim.dynamics.x.e[2] == 5.1
-    @test sim.dynamics.x.f == true
-    @test sim.dynamics.x.g == 1.4
+    DynamicsAndControl.set_state!(state(sim.dynamics), (a=4.1, b=(@SVector [7.0, 2.0, 3.0]), c=3.2, d=3.0, e=(@MVector [2.0, 5.1, 7.2, 1.4])), (f=true, g=1.4))
+    @test state(sim.dynamics).a == 4.1
+    @test state(sim.dynamics).b[2] == 2
+    @test state(sim.dynamics).e[2] == 5.1
+    @test state(sim.dynamics).f == true
+    @test state(sim.dynamics).g == 1.4
 
-    DynamicsAndControl.copyto!(sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate(sim.dynamics))
-    @test sim.dynamics.x_integrable_vector[1] == 4.1
-    @test sim.dynamics.x_integrable_vector[2] == 7.0
-    @test sim.dynamics.x_integrable_vector[3] == 2.0
-    @test sim.dynamics.x_integrable_vector[6] == 3.0
-    @test sim.dynamics.x_integrable_vector[end] == 1.4
+    DynamicsAndControl.copyto!(integrable_vector(sim.dynamics), integrable_substate(sim.dynamics))
+    @test integrable_vector(sim.dynamics)[1] == 4.1
+    @test integrable_vector(sim.dynamics)[2] == 7.0
+    @test integrable_vector(sim.dynamics)[3] == 2.0
+    @test integrable_vector(sim.dynamics)[6] == 3.0
+    @test integrable_vector(sim.dynamics)[end] == 1.4
 
-    copyto!(sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate(sim.dynamics))
+    copyto!(integrable_vector(sim.dynamics), integrable_substate(sim.dynamics))
 
-    sim.dynamics.x_integrable_vector[1] *= 1.5
-    sim.dynamics.x_integrable_vector[2] *= 1.6
-    sim.dynamics.x_integrable_vector[7] *= 1.7
+    integrable_vector(sim.dynamics)[1] *= 1.5
+    integrable_vector(sim.dynamics)[2] *= 1.6
+    integrable_vector(sim.dynamics)[7] *= 1.7
 
-    copyto!(DynamicsAndControl.integrable_substate(sim.dynamics), sim.dynamics.x_integrable_vector)
+    copyto!(integrable_substate(sim.dynamics), integrable_vector(sim.dynamics))
 
-    @test sim.dynamics.x.a == 4.1*1.5
-    @test sim.dynamics.x.b[1] == 7.0*1.6
-    @test sim.dynamics.x.e[1] == 2.0*1.7
+    @test state(sim.dynamics).a == 4.1*1.5
+    @test state(sim.dynamics).b[1] == 7.0*1.6
+    @test state(sim.dynamics).e[1] == 2.0*1.7
 
-    @btime copyto!($sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate($sim.dynamics))
-    @btime copyto!(DynamicsAndControl.integrable_substate($sim.dynamics), $sim.dynamics.x_integrable_vector)
+    @btime copyto!(integrable_vector($sim.dynamics), integrable_substate($sim.dynamics))
+    @btime copyto!(integrable_substate($sim.dynamics), integrable_vector($sim.dynamics))
 
 end
 
@@ -84,8 +85,8 @@ end
 
 function test2()
     sim = Simulation( ( :truth, DynamicsFoo2, (w0=4.0,) ), 0.0, RK4(), dt=0.1)
-    @test sim.dynamics.x.a == 2.0
-    @test sim.dynamics.x.b[2] == 2
+    @test state(sim.dynamics).a == 2.0
+    @test state(sim.dynamics).b[2] == 2
 end
 
 @dynamics DynamicsFoo3 begin
@@ -105,7 +106,7 @@ end
 
 function test3()
     sim = Simulation( ( :truth, DynamicsFoo3, (w0=4.0,) ), 0.0, RK4(), dt=0.1)
-    @test sim.dynamics.x.a == 1.1
+    @test state(sim.dynamics).a == 1.1
 end
 
 @dynamics DynamicsFoo4 begin
@@ -126,7 +127,7 @@ end
 function test4()
     sim = Simulation( ( :truth, DynamicsFoo4, (w0=4.0,) ), 0.0, RK4(), dt=0.1)
 
-    @test sim.dynamics.x.a == 1.1
+    @test state(sim.dynamics).a == 1.1
 end
 
 test()

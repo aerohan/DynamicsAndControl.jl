@@ -66,8 +66,8 @@ end
 function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, log_sink)
     namespace, T_dyn, config_dyn = dynamics_args
     istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
-    component_common = ComponentCommon(simtime, dt, dt, static_dyn, log_sink, namespace)
-    dynamics = T_dyn(istate_initial, dstate_initial, component_common)
+    component_data = ComponentData(simtime, dt, dt, static_dyn, log_sink, namespace)
+    dynamics = T_dyn(istate_initial, dstate_initial, component_data)
 
     return dynamics
 end
@@ -76,8 +76,8 @@ end
 function _setup(::Type{Sensor}, sensor_args, simtime, dt, log_sink, dynamics)
     namespace, T_s, config_s = sensor_args
     state_initial, outputs_initial, static_s = initialize(T_s, config_s)
-    component_common = ComponentCommon(simtime, dt, dt, static_s, log_sink, namespace)
-    sensor = T_s(state_initial, outputs_initial, component_common, dynamics)
+    component_data = ComponentData(simtime, dt, dt, static_s, log_sink, namespace)
+    sensor = T_s(state_initial, outputs_initial, component_data, dynamics)
 
     return sensor
 end
@@ -85,8 +85,8 @@ end
 function _setup(::Type{Controller}, controller_args, simtime, dt, log_sink, sensor)
     namespace, T_c, config_c = controller_args
     state_initial, outputs_initial, static_c = initialize(T_c, config_c)
-    component_common = ComponentCommon(simtime, dt, dt, static_c, log_sink, namespace)
-    controller = T_c(state_initial, outputs_initial, component_common, sensor)
+    component_data = ComponentData(simtime, dt, dt, static_c, log_sink, namespace)
+    controller = T_c(state_initial, outputs_initial, component_data, sensor)
 
     return controller
 end
@@ -94,17 +94,17 @@ end
 function _setup(::Type{Actuator}, actuator_args, simtime, dt, log_sink, controller)
     namespace, T_a, config_a = actuator_args
     state_initial, outputs_initial, static_a = initialize(T_a, config_a)
-    component_common = ComponentCommon(simtime, dt, dt, static_a, log_sink, namespace)
-    actuator = T_a(state_initial, outputs_initial, component_common, controller)
+    component_data = ComponentData(simtime, dt, dt, static_a, log_sink, namespace)
+    actuator = T_a(state_initial, outputs_initial, component_data, controller)
 
     return actuator
 end
 
 function simulate(sim::Simulation)
     # set up the initial state
-    set_state!(sim.dynamics.x, sim.dynamics.x_initial_integrable, sim.dynamics.x_initial_direct)
-    copyto!(sim.dynamics.x_integrable_vector, DynamicsAndControl.integrable_substate(sim.dynamics))
-    x0_vector = copy(sim.dynamics.x_integrable_vector)
+    set_state!(state(sim.dynamics), data(sim.dynamics).x_initial_integrable, data(sim.dynamics).x_initial_direct)
+    copyto!(integrable_vector(sim.dynamics), integrable_substate(sim.dynamics))
+    x0_vector = copy(integrable_vector(sim.dynamics))
 
     # generate the controls at the first timestep
     update_sensor_controller_actuator!(sim)
@@ -155,7 +155,7 @@ function update_dynamics!(sim, integrator)
     ẋ = integrable_substate_derivative(sim.dynamics)
     xi = integrable_substate(sim.dynamics)
     x = state(sim.dynamics)
-    x_vec = sim.dynamics.x_integrable_vector
+    x_vec = integrable_vector(sim.dynamics)
     u = outputs(sim.actuator)
 
     state_modified = update!(sim.dynamics, ẋ, x, u, t_current)::Bool

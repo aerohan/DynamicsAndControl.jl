@@ -30,14 +30,14 @@ export
     Dynamics,
     IntegrableState,
     DirectState,
-    DynamicState,
     Simulation,
     Sensor,
     Actuator,
     Controller,
     SensorActuatorControllerState,
     SensorActuatorControllerOutputs,
-    ComponentCommon,
+    ComponentData,
+    DynamicsData,
     LogDataSink,
     simulate,
     create_dynamics,
@@ -47,6 +47,7 @@ export
 
 export
     @unpack,
-    @pack!
+    @pack!,
+    RK4
 
 end # module

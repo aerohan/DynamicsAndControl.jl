@@ -52,6 +52,21 @@ end
     end
 end
 
+@controller DynamicsFooNext{T, N1, N2, S} begin
+    @state begin
+        a::T
+        b::SVector{N1, T}
+        c::T
+        d::T
+        e::MVector{N2, T}
+    end
+
+    @outputs begin
+        f::S
+        g::T
+    end
+end
+
 # test components together
 @dynamics ScalarTestDynamics{T} begin
     @integrable begin

@@ -2,7 +2,6 @@ abstract type Component end
 
 abstract type Dynamics <: Component end
 
-abstract type DynamicState end
 abstract type IntegrableState end
 abstract type DirectState end
 

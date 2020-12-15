@@ -1,21 +1,25 @@
 function initialize(::Type{Component}, config) end
 
-simtime(c::Component) = c.component_common.simtime
-sim_dt(c::Component) = c.component_common.simulation_dt
-component_dt(c::Component) = c.component_common.component_dt
-namespace(c::Component) = c.component_common.namespace
-log_sink(c::Component) = c.component_common.log_sink
-static(c::Component) = c.component_common.static
+simtime(c::Component) = component_data(c).simtime
+sim_dt(c::Component) = component_data(c).simulation_dt
+component_dt(c::Component) = component_data(c).component_dt
+namespace(c::Component) = component_data(c).namespace
+log_sink(c::Component) = component_data(c).log_sink
+static(c::Component) = component_data(c).static
 
 function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
 
-integrable_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_integrable)
-integrable_substate_derivative(dynamics::Dynamics) = getfield(dynamics.x, :ẋ_integrable)
-direct_substate(dynamics::Dynamics) = getfield(dynamics.x, :x_direct)
-state(dyn::Dynamics) = dyn.x
+data(dyn::Dynamics) = dyn.data
+state(dyn::Dynamics) = dyn.data.x
+component_data(dyn::Dynamics) = dyn.data.component_data
+integrable_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_integrable)
+integrable_substate_derivative(dynamics::Dynamics) = getfield(state(dynamics), :ẋ_integrable)
+direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
+integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
 
 function update!(::SensorActuatorController, output, state, input, t) return nothing end
+component_data(sac::SensorActuatorController) = sac.component_data
 outputs(sac::SensorActuatorController) = sac.outputs
 state(sac::SensorActuatorController) = sac.state
 
@@ -26,7 +30,7 @@ end
 set!(time::SimTime, t) = (time.t = t)
 get(time::SimTime) = time.t
 
-struct ComponentCommon{T_t, NT}
+struct ComponentData{T_t<:Real,NT<:NamedTuple}
     # Global sim time
     simtime::SimTime{T_t}
     simulation_dt::T_t
@@ -39,6 +43,25 @@ struct ComponentCommon{T_t, NT}
 end
 
 # Dynamics
+struct DynamicState{T_int<:IntegrableState,T_intd<:IntegrableState,T_dir<:DirectState}
+    x_integrable::T_int
+    ẋ_integrable::T_intd
+    x_direct::T_dir
+end
+
+struct DynamicsData{T_dyn<:DynamicState,V<:AbstractVector,T_xi0<:Tuple,T_xd0<:Tuple,C<:ComponentData}
+    # Dynamic state (superset of integrable and direct substates)
+    x::T_dyn
+
+    # Integrable state vector representation for ODE interface
+    x_integrable_vector::V
+
+    # Tuples holding initial state data
+    x_initial_integrable::T_xi0
+    x_initial_direct::T_xd0
+
+    component_data::C
+end
 
 macro dynamics(typename, blocks)
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, __module__)
@@ -50,50 +73,17 @@ macro dynamics(typename, blocks)
     # set up the direct substate
     blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, :DirectState, "@direct")
 
-    # set up the dynamic state
-    dynamic_state_type = :($(Symbol(typename_bare, "DynamicState")))
-
-    dynamic_state_type_params = []
-    push!(dynamic_state_type_params, :(T_int<:$(namify(integrable_state_type))))
-    push!(dynamic_state_type_params, :(T_intd<:$(namify(integrable_derivative_type))))
-    push!(dynamic_state_type_params, :(T_dir<:$(namify(direct_state_type))))
-
-    dynamics_type_params = []
-    push!(dynamics_type_params, :(T_dyn<:$(namify(dynamic_state_type))))
-    push!(dynamics_type_params, :(V<:AbstractVector))
-    push!(dynamics_type_params, :(T_xi0<:Tuple))
-    push!(dynamics_type_params, :(T_xd0<:Tuple))
-    push!(dynamics_type_params, :(NT<:NamedTuple))
-    push!(dynamics_type_params, :(T_t<:Real))
-
     quote
         $blocks
 
-        struct $(dynamic_state_type){$(dynamic_state_type_params...)} <: DynamicState
-            x_integrable::T_int
-            ẋ_integrable::T_intd
-            x_direct::T_dir
-        end
-
-        struct $(typename_bare){$(dynamics_type_params...)} <: Dynamics
-            # Dynamic state (superset of integrable and direct substates)
-            x::T_dyn
-
-            # Integrable state vector representation for ODE interface
-            x_integrable_vector::V
-
-            # Tuples holding initial state data
-            x_initial_integrable::T_xi0
-            x_initial_direct::T_xd0
-
-            component_common::ComponentCommon{T_t, NT}
+        struct $(typename_bare){DD<:DynamicsData} <: Dynamics
+            data::DD
         end
 
         # constructor for initializing dynamics component from initial state tuples
-        function $(typename_bare)(x_integrable_tuple_in, x_direct_tuple_in, component_common)
+        function $(typename_bare)(x_integrable_tuple_in, x_direct_tuple_in, component_data)
             return create_dynamics($(typename_bare), $(namify(integrable_state_type)), $(namify(integrable_derivative_type)),
-                                   $(namify(direct_state_type)), $(namify(dynamic_state_type)),
-                                   x_integrable_tuple_in, x_direct_tuple_in, component_common)
+                                   $(namify(direct_state_type)), x_integrable_tuple_in, x_direct_tuple_in, component_data)
         end
     end |> esc
 end
@@ -170,18 +160,18 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
             # Tuple holding initial state data
             state_initial::T_x0
 
-            component_common::ComponentCommon{T_t, NT}
+            component_data::ComponentData{T_t, NT}
         end
 
         # constructor for initializing component from initial state/output tuples
-        function $(typename_bare)(state_tuple_in, output_tuple_in, component_common)
+        function $(typename_bare)(state_tuple_in, output_tuple_in, component_data)
             return create_sensor_actuator_controller($(typename_bare), $(namify(state_type)), $(namify(output_type)),
-                                   state_tuple_in, output_tuple_in, component_common)
+                                   state_tuple_in, output_tuple_in, component_data)
         end
 
         # constructor with argument for input component, ignored in this case
-        function $(typename_bare)(state_tuple_in, output_tuple_in, component_common, input_component)
-            return $(typename_bare)(state_tuple_in, output_tuple_in, component_common)
+        function $(typename_bare)(state_tuple_in, output_tuple_in, component_data, input_component)
+            return $(typename_bare)(state_tuple_in, output_tuple_in, component_data)
         end
     end |> esc
 end
@@ -285,21 +275,17 @@ function _configure_integrable_derivative(blocks, typename_bare)
 
     push!(blocks.args, ideriv_def)
 
-    #if length(T_params) > 0
-    #    ideriv_typename = :($ideriv_typename{$(T_params...)})
-    #end
-
     return blocks, ideriv_typename
 end
 
-function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Type{T_dir}, ::Type{T_dynstate}, 
-                         x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_intderiv<:IntegrableState, 
-                                                                                            T_dir<:DirectState, T_dynstate<:DynamicState}
+function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Type{T_dir},
+                         x_integrable_tuple_in, x_direct_tuple_in, component_data) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_intderiv<:IntegrableState, 
+                                                                                            T_dir<:DirectState}
     # create the integrable, direct, dynamic state data structures
     istate = T_int(x_integrable_tuple_in...)
     istate_deriv = T_intderiv(Tuple(zero(integrable_derivative_type(typeof(x_sub))) for x_sub in x_integrable_tuple_in)...)
     dstate = T_dir(x_direct_tuple_in...)
-    dynamic_state = T_dynstate(istate, istate_deriv, dstate)
+    dynamic_state = DynamicState(istate, istate_deriv, dstate)
 
     # initialize the ODE interface state vector with the correct size and type
     n_integrable = integrable_size(dynamic_state)
@@ -310,16 +296,18 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Typ
     dstate_fields = fieldnames(typeof(dstate))
     @assert length(intersect(istate_fields, dstate_fields)) == 0 "field names of integrable and direct substates must not have duplicates"
 
-    return T_dyn(dynamic_state, xi_vector, Tuple(x_integrable_tuple_in), Tuple(x_direct_tuple_in), component_common)
+    dynamics_common = DynamicsData(dynamic_state, xi_vector, Tuple(x_integrable_tuple_in), Tuple(x_direct_tuple_in), component_data)
+
+    return T_dyn(dynamics_common)
 end
 
 function create_sensor_actuator_controller(::Type{T_sac}, ::Type{T_state}, ::Type{T_out},
-                         state_tuple_in, output_tuple_in, component_common) where {T_sac<:SensorActuatorController, T_state<:SensorActuatorControllerState, T_out<:SensorActuatorControllerOutputs}
+                         state_tuple_in, output_tuple_in, component_data) where {T_sac<:SensorActuatorController, T_state<:SensorActuatorControllerState, T_out<:SensorActuatorControllerOutputs}
     # create the state and output data structures
     state = T_state(state_tuple_in...)
     outputs = T_out(output_tuple_in...)
 
-    return T_sac(state, outputs, state_tuple_in, component_common)
+    return T_sac(state, outputs, state_tuple_in, component_data)
 end
 
 _strip_type_param(param::Symbol) = param
@@ -424,7 +412,7 @@ end
 #      cannot be the same as the state. for example, a quaternion type which
 #      automatically renormalizes itself cannot hold a quaternion derivative
 
-integrable_size(dynamics::Dynamics) = integrable_size(dynamics.x)
+integrable_size(dynamics::Dynamics) = integrable_size(state(dynamics))
 integrable_size(dynstate::DynamicState) = integrable_size(getfield(dynstate, :x_integrable))
 function integrable_size(istate::IntegrableState)
     ftypes = fieldtypes(typeof(istate))
@@ -438,7 +426,7 @@ integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vect
 integrable_size(::Type{Q}) where {Q<:UnitQuaternion} = 4
 
 integrable_scalar_type(::Type{T}) where T = eltype(T)
-integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(dynamics.x)
+integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(state(dynamics))
 integrable_scalar_type(dynstate::DynamicState) = integrable_scalar_type(getfield(dynstate, :x_integrable))
 function integrable_scalar_type(substate::IntegrableState)
     ftypes = fieldtypes(typeof(substate))
