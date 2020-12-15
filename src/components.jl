@@ -45,6 +45,7 @@ macro dynamics(typename, blocks)
 
     # set up the integrable substate
     blocks, integrable_state_type = _configure_subcomponent(blocks, typename_bare, type_params, :IntegrableState, :IntegrableState, "@integrable")
+    blocks, integrable_derivative_type = _configure_integrable_derivative(blocks, typename_bare)
 
     # set up the direct substate
     blocks, direct_state_type =     _configure_subcomponent(blocks, typename_bare, type_params, :DirectState, :DirectState, "@direct")
@@ -67,7 +68,7 @@ macro dynamics(typename, blocks)
 
         struct $(dynamic_state_type) <: DynamicState
             x_integrable::$(_strip_super_typename(integrable_state_type))
-            ẋ_integrable::$(_strip_super_typename(integrable_state_type))
+            ẋ_integrable::$(_strip_super_typename(integrable_derivative_type))
             x_direct::$(_strip_super_typename(direct_state_type))
         end
 
@@ -87,7 +88,8 @@ macro dynamics(typename, blocks)
 
         # constructor for initializing dynamics component from initial state tuples
         function $(typename_bare)(x_integrable_tuple_in, x_direct_tuple_in, component_common)
-            return create_dynamics($(typename_bare), $(namify(integrable_state_type)), $(namify(direct_state_type)), $(namify(dynamic_state_type)),
+            return create_dynamics($(typename_bare), $(namify(integrable_state_type)), $(namify(integrable_derivative_type)),
+                                   $(namify(direct_state_type)), $(namify(dynamic_state_type)),
                                    x_integrable_tuple_in, x_direct_tuple_in, component_common)
         end
     end |> esc
@@ -141,10 +143,10 @@ end
 function _sensor_actuator_controller_setup(typename, blocks, component_supertype_name, macro_module)
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, macro_module)
 
-    # set up the integrable substate
+    # set up the state
     blocks, state_type = _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerState, :State, "@state")
 
-    # set up the direct substate
+    # set up the outputs
     blocks, output_type =     _configure_subcomponent(blocks, typename_bare, type_params, :SensorActuatorControllerOutputs, :Outputs, "@output")
 
     push!(type_params, :(T_x0<:Tuple))
@@ -251,11 +253,41 @@ function _propagate_type_parameters(blocks, subcomponent_type_name, component_ty
     return blocks, subcomponent_type_name
 end
 
-function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_dir}, ::Type{T_dynstate}, 
-                         x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_dir<:DirectState, T_dynstate<:DynamicState}
+function _configure_integrable_derivative(blocks, typename_bare)
+    # capture the integrable state definition
+    istate_def = first([block for block in blocks.args if @capture(block, mutable struct T_ <: IntegrableState f__ end)])
+    @capture(istate_def, mutable struct T_ <: Tsuper_ fields__ end) || error("unable to match integrable state definition")
+
+    # define the integrable derivative type, having the same fields as the
+    # integrable state but unknown, parameterized concrete types (to be defined
+    # based on the integrable state's types at construct-time)
+    ideriv_typename = Symbol(typename_bare, :IntegrableDerivative)
+    field_derivative_types = [begin
+            @capture(field, f_::Tfield_) || error("all fields must have concrete types")
+            T_param = Symbol(:T, idx)
+            :($f::$(T_param)), T_param
+        end for (idx, field) in enumerate(fields)]
+
+    field_defs = [expr for (expr, T_param) in field_derivative_types]
+    T_params = [T_param for (expr, T_param) in field_derivative_types]
+
+    ideriv_def =  quote
+        mutable struct $ideriv_typename{$(T_params...)} <: IntegrableState
+            $(field_defs...)
+        end
+    end
+
+    push!(blocks.args, ideriv_def)
+
+    return blocks, ideriv_typename
+end
+
+function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Type{T_dir}, ::Type{T_dynstate}, 
+                         x_integrable_tuple_in, x_direct_tuple_in, component_common) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_intderiv<:IntegrableState, 
+                                                                                            T_dir<:DirectState, T_dynstate<:DynamicState}
     # create the integrable, direct, dynamic state data structures
     istate = T_int(x_integrable_tuple_in...)
-    istate_deriv = T_int(x_integrable_tuple_in...)
+    istate_deriv = T_intderiv(Tuple(zero(integrable_derivative_type(typeof(x_sub))) for x_sub in x_integrable_tuple_in)...)
     dstate = T_dir(x_direct_tuple_in...)
     dynamic_state = T_dynstate(istate, istate_deriv, dstate)
 
@@ -313,35 +345,6 @@ Base.setproperty!(x::DynamicState, sym::Symbol, value) = Base.setproperty!(x, Va
     end
 end
 
-integrable_size(dynamics::Dynamics) = integrable_size(dynamics.x)
-integrable_size(dynstate::DynamicState) = integrable_size(getfield(dynstate, :x_integrable))
-
-function integrable_size(istate::IntegrableState)
-    ftypes = fieldtypes(typeof(istate))
-    return length(ftypes) > 0 ? sum([integrable_size(ftype) for ftype in ftypes]) : 0
-end
-
-#function integrable_size(::Type{T<:IntegrableState}) where T
-#    ftypes = fieldtypes(T)
-#    return sum([integrable_size(ftype) for ftype in ftypes])
-#end
-
-integrable_size(::Type{T}) where T = 1
-integrable_size(::Type{SVector{N, T}}) where {T, N} = N
-integrable_size(::Type{MVector{N, T}}) where {T, N} = N
-integrable_size(::Type{SizedVector{N, T}}) where {T, N} = N
-integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
-
-integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(dynamics.x)
-integrable_scalar_type(dynstate::DynamicState) = integrable_scalar_type(getfield(dynstate, :x_integrable))
-
-function integrable_scalar_type(substate::IntegrableState)
-    ftypes = fieldtypes(typeof(substate))
-    return promote_type([integrable_scalar_type(ftype) for ftype in ftypes]...)
-end
-
-integrable_scalar_type(::Type{T}) where T = eltype(T)
-
 @generated function set_state!(x::DynamicState, x_integrable_in, x_direct_in)
     out = quote
         # get the state data structures
@@ -374,7 +377,7 @@ end
     istart = 1
     for (name, type) in zip(fieldnames(xi_dyn), fieldtypes(xi_dyn))
         iend = istart + integrable_size(type) - 1
-        line = :(view(xi_vector, $(istart:iend)) .= getfield(xi_dyn, $(QuoteNode(name))))
+        line = :(view(xi_vector, $(istart:iend)) .= make_integrable(getfield(xi_dyn, $(QuoteNode(name)))))
         push!(out.args, line)
         istart = iend + 1
     end
@@ -398,12 +401,39 @@ end
 end
 
 # methods for copying a specific integrable state field from the ODE-interface
-# vector to the integrable state data structure
+# vector to the integrable state data structure, and vice versa
 #
 # custom types can be placed inside the integrable state by satisfying the following interface:
 #   1. define an "integrable_size" method
-#   2. define a "integrable_scalar_type" method
+#   2. define a "integrable_scalar_type" method, if the default (eltype) is not sufficient
 #   3. define a "copyto!" method with the type signature matching below
+#   4. define a "make_integrable" method, which returns an iterable object to be
+#      copied into the integrable vector's relevant view, if default is not
+#      sufficent
+#   5. define a "integrable_derivative_type" method, if the derivative's type
+#      cannot be the same as the state. for example, a quaternion type which
+#      automatically renormalizes itself cannot hold a quaternion derivative
+
+integrable_size(dynamics::Dynamics) = integrable_size(dynamics.x)
+integrable_size(dynstate::DynamicState) = integrable_size(getfield(dynstate, :x_integrable))
+function integrable_size(istate::IntegrableState)
+    ftypes = fieldtypes(typeof(istate))
+    return length(ftypes) > 0 ? sum([integrable_size(ftype) for ftype in ftypes]) : 0
+end
+integrable_size(::Type{T}) where T = 1
+integrable_size(::Type{SVector{N, T}}) where {T, N} = N
+integrable_size(::Type{MVector{N, T}}) where {T, N} = N
+integrable_size(::Type{SizedVector{N, T}}) where {T, N} = N
+integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
+integrable_size(::Type{Q}) where {Q<:UnitQuaternion} = 4
+
+integrable_scalar_type(::Type{T}) where T = eltype(T)
+integrable_scalar_type(dynamics::Dynamics) = integrable_scalar_type(dynamics.x)
+integrable_scalar_type(dynstate::DynamicState) = integrable_scalar_type(getfield(dynstate, :x_integrable))
+function integrable_scalar_type(substate::IntegrableState)
+    ftypes = fieldtypes(typeof(substate))
+    return promote_type([integrable_scalar_type(ftype) for ftype in ftypes]...)
+end
 
 # unless we have a specific method for deserializing, assume the view subarray
 # is 1-element long and set the corresponding field in the state data struct to
@@ -424,3 +454,17 @@ function Base.copyto!(xi_dyn::IntegrableState, fieldname, xi_vec_view::SubArray,
     getfield(xi_dyn, fieldname) .= xi_vec_view
     return nothing
 end
+
+# Quaternion (immutable) case
+function Base.copyto!(xi_dyn::IntegrableState, fieldname, xi_vec_view::SubArray, ::Type{T_field}) where {T_field<:UnitQuaternion}
+    setfield!(xi_dyn, fieldname, T_field(xi_vec_view...))
+    return nothing
+end
+
+make_integrable(x::T) where T = x
+make_integrable(q::UnitQuaternion{T}) where T = (q.w, q.x, q.y, q.z)
+
+# maps an integrable state type to the type of the corresponding derivative. in
+# most cases, these types are the same
+integrable_derivative_type(::Type{T}) where T = T
+integrable_derivative_type(::Type{Q}) where {Q<:UnitQuaternion{T}} where T = SVector{4, T}

@@ -1,3 +1,6 @@
+###########################
+# Simulation Data Logging #
+###########################
 # telemetry is generated in "flows", which are sets of channels that are
 # telemetered/logged together and at the same frequency, so they therefore have
 # a consistent timebase. each flow is identified by a tuple of symbols, to
@@ -36,7 +39,7 @@ end
 function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple)
     flow = LogDataFlowId(flow)
 
-    # at the first time, register this flow
+    # if this is the first time around, register this flow
     if !haskey(log_sink.data, flow)
         log_sink.data[flow] = Dict{Symbol, Vector}()
         for (k, T) in zip(keys(current_data), fieldtypes(typeof(current_data)))
@@ -83,6 +86,9 @@ end
     return out
 end
 
+############################
+# Simulation Data Handling #
+############################
 struct SimulationDataset
     data::LogDataSink
 end
@@ -138,9 +144,14 @@ function Base.show(io::IO, flow_data::FlowData)
     print(io, "\t")
     println(io, keys(data(flow_data)))
 end
-Base.show(io::IO, dataset::SimulationDataset) = show(io, SimulationDataSubset(dataset, ()))
 
 @recipe _handle_dataseries(::Type{T}, val::T) where{T<:DataSeries} = val.series
 
 Base.getindex(ds::DataSeries{T}, i::Int) where {T<:AbstractVector} = map(val->val[i], ds.series)
 Base.getindex(ds::DataSeries{T}) where {T<:Real} = ds.series
+
+Base.broadcasted(f, ds::DataSeries, args...) = Base.broadcasted(f, ds.series, args...)
+Base.iterate(ds::DataSeries, args...) = iterate(ds.series, args...)
+Base.length(ds::DataSeries, args...) = length(ds.series, args...)
+Base.first(ds::DataSeries, args...) = ds.series[1]
+Base.last(ds::DataSeries, args...) = ds.series[end]

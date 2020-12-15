@@ -18,7 +18,7 @@ function Simulation(dynamics_args,
                     sensor_args,
                     controller_args,
                     actuator_args,
-                    tspan, solver; dt=error("must specify dt"))
+                    tspan, solver; dt=error("must specify dt"), control_dt=dt)
 
     # set up simulation time span and time object
     tstart, tfinal = process_time_span(tspan)
@@ -35,9 +35,9 @@ function Simulation(dynamics_args,
     # named tuples for clarity, but the correct order must be maintained, since
     # the tuple is splatted based positional arguments
     dynamics = _setup(Dynamics, dynamics_args, simtime, dt, log_sink)
-    sensor = _setup(Sensor, sensor_args, simtime, dt, log_sink, dynamics)
-    controller = _setup(Sensor, controller_args, simtime, dt, log_sink, sensor)
-    actuator = _setup(Actuator, actuator_args, simtime, dt, log_sink, controller)
+    sensor = _setup(Sensor, sensor_args, simtime, control_dt, log_sink, dynamics)
+    controller = _setup(Sensor, controller_args, simtime, control_dt, log_sink, sensor)
+    actuator = _setup(Actuator, actuator_args, simtime, control_dt, log_sink, controller)
 
     return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, log_sink)
 end
@@ -124,7 +124,7 @@ function simulate(sim::Simulation)
         # update the simtime
         set!(sim.simtime, integrator_step.t)
 
-        # copy the latest integrated state
+        # copy the latest integrated state (note that u is the state vector in the ODE API)
         copyto!(integrable_substate(sim.dynamics), integrator_step.u)
 
         # generate new controls
@@ -134,7 +134,7 @@ function simulate(sim::Simulation)
         update_dynamics!(sim, integrator_step)
     end
 
-    return SimulationDataset(sim.log_sink), ode_integrator.sol
+    return SimulationDataset(sim.log_sink)
 end
 
 function dynamics_ode_interface!(sim, ẋ, x, t)
@@ -145,7 +145,7 @@ end
 
 function compute_ẋ!(sim::Simulation, t)
     ẋ = integrable_substate_derivative(sim.dynamics)
-    x = integrable_substate(sim.dynamics)
+    x = state(sim.dynamics)
     u = outputs(sim.actuator)
     dynamics!(sim.dynamics, ẋ, x, u, t)
 end

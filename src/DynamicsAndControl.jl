@@ -5,6 +5,8 @@ using StaticArrays
 using OrdinaryDiffEq
 using UnPack
 using RecipesBase
+using Rotations
+using MeshCat
 
 # debugging only
 using Infiltrator
