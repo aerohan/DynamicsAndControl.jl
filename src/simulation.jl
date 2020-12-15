@@ -168,3 +168,11 @@ end
 
 process_time_span(tspan::Tuple) = tspan[1], tspan[2]
 process_time_span(tfinal::Real) = zero(typeof(tfinal)), tfinal
+
+function Base.show(io::IO, sim::Simulation{D,S,C,A,T_t,T_solver}) where {D,S,C,A,T_t,T_solver}
+    println(io, "Simulation with dt=$(sim.dt), tspan=$(sim.tspan), solver=$(T_solver.name), components=")
+    println(io, "\tdynamics: $(D.name)")
+    println(io, "\tsensor: $(S.name)")
+    println(io, "\tcontroller: $(C.name)")
+    println(io, "\tactuator: $(A.name)")
+end

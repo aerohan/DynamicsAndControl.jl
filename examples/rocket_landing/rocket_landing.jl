@@ -15,6 +15,7 @@
 #     name: julia-1.5
 # ---
 
+using Revise
 using DynamicsAndControl
 using StaticArrays
 using Rotations
@@ -87,7 +88,8 @@ function DynamicsAndControl.update!(this::RocketLandingController, u, _, x, t)
     log!(this, :outputs, t, (;T_thrust, δ_gim))
 end
 
-dynamics_conf = ( x0 = (
+dynamics_conf = ( 
+                  x0 = (
                          r = @SVector([.5e3, 2e3]), 
                          v = @SVector([-50.0, -250.0]),
                          θ = -20*π/180,
@@ -100,7 +102,7 @@ dynamics_conf = ( x0 = (
                         J = 1e6,
                         t_hat_body = @SVector [-1.0, 0.0]
                     )
-                 )
+)
 
 control_conf = ( T_W = 1.1, g0 = 9.81)
 
@@ -109,29 +111,22 @@ sim = Simulation(
                     ( :truth, PlanarRocketLanding, dynamics_conf ),
                     ( :controller, RocketLandingController, control_conf ),
                     10.0, RK4(), dt=0.02
-               )
+)
 
 data = simulate(sim)
 
 let p = data.truth.state
-    #plot(p.time, p.r[1], xlabel="time", ylabel="horz")
-    #plot!(p.time, p.r[2], xlabel="time", ylabel="vert")
-    plot(p.r[1], p.r[2], xlabel="horz", ylabel="vert")
+    plot(p.r[1], p.r[2], xlabel="x", ylabel="z", label=false)
 end
 
 let p = data.truth.state
-    plot(p.time, p.v)
+    plot(p.time, p.v, label=["vx" "vz"])
 end
 
 let p = data.truth.state
-    plot(p.time, p.v)
+    plot(p.time, p.θ.*180/π, label="θ")
 end
 
-let p = data.truth.state
-    plot(p.time, p.θ.*180/π)
-end
-
-let p = data.truth.state
-    #plot(p.time, p.m, xlim=(0, .5), ylim=(0.0, 1.0))
-    plot!(p.time, p.ṁ)
+let p = data.truth.forces
+    plot(p.time, p.f_thrust, label=["fx" "fz"])
 end
