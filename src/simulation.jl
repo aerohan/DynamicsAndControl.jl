@@ -153,10 +153,17 @@ function update_dynamics!(sim, integrator)
 end
 
 function update_sensor_controller_actuator!(sim::Simulation)
+    # dispatch each of the sensor, controller, actuator components (they will update if their periodic fires)
     t_current = get(sim.simtime)
-    update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
-    update!(sim.controller, outputs(sim.controller), state(sim.controller), outputs(sim.sensor), t_current)
-    update!(sim.actuator, outputs(sim.actuator), state(sim.actuator), outputs(sim.controller), t_current)
+    dispatch(periodic(sim.sensor), t_current, sim_dt(sim.sensor)) do
+        update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
+    end
+    dispatch(periodic(sim.controller), t_current, sim_dt(sim.controller)) do
+        update!(sim.controller, outputs(sim.controller), state(sim.controller), outputs(sim.sensor), t_current)
+    end
+    dispatch(periodic(sim.actuator), t_current, sim_dt(sim.actuator)) do
+        update!(sim.actuator, outputs(sim.actuator), state(sim.actuator), outputs(sim.controller), t_current)
+    end
 end
 
 process_time_span(tspan::Tuple) = tspan[1], tspan[2]

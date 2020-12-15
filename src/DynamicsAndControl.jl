@@ -47,7 +47,8 @@ export
     create_dynamics,
     create_sensor_actuator_controller,
     log!,
-    static
+    static,
+    series
 
 export
     @unpack,

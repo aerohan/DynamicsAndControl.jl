@@ -123,7 +123,7 @@ direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
 integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
 
 function update!(::SensorActuatorController, output, state, input, t) return nothing end
-periodic(sac::SensorActuatorController) = sac.periodic
+periodic(sac::SensorActuatorController) = sac.data.periodic
 component_data(sac::SensorActuatorController) = sac.data.component_data
 outputs(sac::SensorActuatorController) = sac.data.outputs
 state(sac::SensorActuatorController) = sac.data.state

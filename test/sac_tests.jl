@@ -174,7 +174,7 @@ DynamicsAndControl.initialize(::Type{ScalarTestController2}, config) = (0,), (1.
 function DynamicsAndControl.update!(this::ScalarTestController2, u, control_state, y, t)
     u.ctrl = Float64(control_state.counter) + y.val
     control_state.counter += 1
-    #println("\tcontroller: t=$t, u=$(u.ctrl)")
+    log!(this, (), t, (ctrl=u.ctrl, counter=control_state.counter))
 end
 
 function test_passthrough_sensor_actuator()
@@ -186,6 +186,26 @@ function test_passthrough_sensor_actuator()
     data = simulate(sim)
 end
 
+function test_control_dt()
+    sim = Simulation( 
+                         ( :truth, ScalarTestDynamics2, () ), 
+                         ( :controller, ScalarTestController2, () ), 
+                         100.0, RK4(), dt=1.0
+                    )
+    data1 = simulate(sim)
+
+    sim = Simulation( 
+                         ( :truth, ScalarTestDynamics2, () ), 
+                         ( :controller, ScalarTestController2, () ), 
+                         100.0, RK4(), dt=1.0, control_dt=5.0
+                    )
+    data2 = simulate(sim)
+
+    @test all(diff(series(data1.controller.time)) .≈ 1.0)
+    @test all(diff(series(data2.controller.time)) .≈ 5.0)
+end
+
 test_components()
 test_sim()
 test_passthrough_sensor_actuator()
+test_control_dt()

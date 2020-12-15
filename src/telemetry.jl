@@ -157,3 +157,5 @@ Base.iterate(ds::DataSeries, args...) = iterate(ds.series, args...)
 Base.length(ds::DataSeries, args...) = length(ds.series, args...)
 Base.first(ds::DataSeries, args...) = first(ds.series, args...)
 Base.last(ds::DataSeries, args...) = last(ds.series, args...)
+
+series(ds::DataSeries) = ds.series
