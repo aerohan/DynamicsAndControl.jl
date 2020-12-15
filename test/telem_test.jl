@@ -1,6 +1,5 @@
 using Test
 using BenchmarkTools
-
 using DynamicsAndControl: LogDataSink, LogDataFlowId, SimulationDataset
 
 function test1()

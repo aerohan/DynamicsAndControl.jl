@@ -129,9 +129,9 @@ function test_components()
     log_sink = DynamicsAndControl.LogDataSink()
 
     dynamics = DynamicsAndControl._setup(Dynamics, (:truth, ScalarTestDynamics, ()), simtime, dt, log_sink)
-    sensor = DynamicsAndControl._setup(Sensor, (:sensor, ScalarTestSensor, ()), simtime, dt, log_sink, dynamics)
-    controller = DynamicsAndControl._setup(Controller, (:actuator, ScalarTestController, ()), simtime, dt, log_sink, sensor)
-    actuator = DynamicsAndControl._setup(Actuator, (:actuator, ScalarTestActuator, ()), simtime, dt, log_sink, controller)
+    sensor = DynamicsAndControl._setup(Sensor, (:sensor, ScalarTestSensor, ()), simtime, dt, dt, log_sink, dynamics)
+    controller = DynamicsAndControl._setup(Controller, (:actuator, ScalarTestController, ()), simtime, dt, dt, log_sink, sensor)
+    actuator = DynamicsAndControl._setup(Actuator, (:actuator, ScalarTestActuator, ()), simtime, dt, dt, log_sink, controller)
 end
 
 function test_sim()

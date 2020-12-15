@@ -1,27 +1,7 @@
 function initialize(::Type{Component}, config) end
 
-simtime(c::Component) = component_data(c).simtime
-sim_dt(c::Component) = component_data(c).simulation_dt
-component_dt(c::Component) = component_data(c).component_dt
-namespace(c::Component) = component_data(c).namespace
-log_sink(c::Component) = component_data(c).log_sink
-static(c::Component) = component_data(c).static
-
 function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
-
-data(dyn::Dynamics) = dyn.data
-state(dyn::Dynamics) = dyn.data.x
-component_data(dyn::Dynamics) = dyn.data.component_data
-integrable_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_integrable)
-integrable_substate_derivative(dynamics::Dynamics) = getfield(state(dynamics), :ẋ_integrable)
-direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
-integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
-
-function update!(::SensorActuatorController, output, state, input, t) return nothing end
-component_data(sac::SensorActuatorController) = sac.data.component_data
-outputs(sac::SensorActuatorController) = sac.data.outputs
-state(sac::SensorActuatorController) = sac.data.state
 
 # Time
 mutable struct SimTime{T}
@@ -29,6 +9,53 @@ mutable struct SimTime{T}
 end
 set!(time::SimTime, t) = (time.t = t)
 get(time::SimTime) = time.t
+
+# Periodic which dispatches looking only at current time relative to scheduled.
+# Dispatch dt does not have to be integer multiple of sim dt.
+mutable struct PeriodicReal{T}
+    dt::T
+    t0::T
+    index::Int
+    eps::T
+end
+PeriodicReal(dt; eps=1e-6) = PeriodicReal(dt, typemax(dt), 0, eps)
+reset(p::PeriodicReal) = (p.t0 = typemax(p.t0))
+
+function dispatch(f, periodic::PeriodicReal, t)
+    if isinf(periodic.t0)
+        periodic.t0 = t
+    end
+
+    if t >= periodic.t0 + periodic.dt * periodic.index - periodic.eps
+        f()
+        periodic.index += 1
+    end
+
+    return nothing
+end
+
+# Periodic which dispatches based on a fixed number of sim cycles. If dispatch
+# rate is not integer multiple of simulation dt, the cycle count is rounded.
+mutable struct PeriodicFixed{T}
+    dt::T
+    t_last::T
+end
+PeriodicFixed(dt) = PeriodicFixed(dt, typemax(dt))
+function reset(p::PeriodicFixed)
+    p.t_last = typemax(p.t_last)
+end
+
+function dispatch(f, periodic::PeriodicFixed, t, sim_dt)
+    if isinf(periodic.t_last)
+        f()
+        periodic.t_last = t
+    elseif round((t - periodic.t_last)/sim_dt) == round(periodic.dt/sim_dt)
+        f()
+        periodic.t_last = t
+    end
+
+    return nothing
+end
 
 struct ComponentData{T_t<:Real,NT<:NamedTuple}
     # Global sim time
@@ -62,6 +89,44 @@ struct DynamicsData{T_dyn<:DynamicState,V<:AbstractVector,T_xi0<:Tuple,T_xd0<:Tu
 
     component_data::C
 end
+
+# Sensor, Actuator, Controller
+struct SensorActuatorControllerData{T_state<:SensorActuatorControllerState,T_out<:SensorActuatorControllerOutputs,
+                                    T_x0<:Tuple,P<:PeriodicFixed,C<:ComponentData}
+    # Main state/output data structure
+    state::T_state
+    outputs::T_out
+
+    # Tuple holding initial state data
+    state_initial::T_x0
+
+    # Periodic dispatcher
+    periodic::P
+
+    # Data common to all components
+    component_data::C
+end
+
+simtime(c::Component) = component_data(c).simtime
+sim_dt(c::Component) = component_data(c).simulation_dt
+component_dt(c::Component) = component_data(c).component_dt
+namespace(c::Component) = component_data(c).namespace
+log_sink(c::Component) = component_data(c).log_sink
+static(c::Component) = component_data(c).static
+
+data(dyn::Dynamics) = dyn.data
+state(dyn::Dynamics) = dyn.data.x
+component_data(dyn::Dynamics) = dyn.data.component_data
+integrable_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_integrable)
+integrable_substate_derivative(dynamics::Dynamics) = getfield(state(dynamics), :ẋ_integrable)
+direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
+integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
+
+function update!(::SensorActuatorController, output, state, input, t) return nothing end
+periodic(sac::SensorActuatorController) = sac.periodic
+component_data(sac::SensorActuatorController) = sac.data.component_data
+outputs(sac::SensorActuatorController) = sac.data.outputs
+state(sac::SensorActuatorController) = sac.data.state
 
 macro dynamics(typename, blocks)
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, __module__)
@@ -102,19 +167,6 @@ macro direct(block)
             $(block.args...)
         end
     end |> esc
-end
-
-# Sensor, Actuator, Controller
-struct SensorActuatorControllerData{T_state<:SensorActuatorControllerState,T_out<:SensorActuatorControllerOutputs,T_x0<:Tuple,C<:ComponentData}
-    # Main state/output data structure
-    state::T_state
-    outputs::T_out
-
-    # Tuple holding initial state data
-    state_initial::T_x0
-
-    # Data common to all components
-    component_data::C
 end
 
 macro sensor(typename, block)
@@ -162,14 +214,14 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
         end
 
         # constructor for initializing component from initial state/output tuples
-        function $(typename_bare)(state_tuple_in, output_tuple_in, component_data)
+        function $(typename_bare)(state_tuple_in, output_tuple_in, periodic, component_data)
             return create_sensor_actuator_controller($(typename_bare), $(namify(state_type)), $(namify(output_type)),
-                                   state_tuple_in, output_tuple_in, component_data)
+                                   state_tuple_in, output_tuple_in, periodic, component_data)
         end
 
         # constructor with argument for input component, ignored in this case
-        function $(typename_bare)(state_tuple_in, output_tuple_in, component_data, input_component)
-            return $(typename_bare)(state_tuple_in, output_tuple_in, component_data)
+        function $(typename_bare)(state_tuple_in, output_tuple_in, periodic, component_data, input_component)
+            return $(typename_bare)(state_tuple_in, output_tuple_in, periodic, component_data)
         end
     end |> esc
 end
@@ -192,7 +244,8 @@ end
 
 # configures the subcomponent generated code, by updating the struct name and handling the unspecified case
 #   example subcomponent supertypes: IntegrableState, DirectState, SensorActuatorControllerOutputs, SensorActuatorControllerState
-function _configure_subcomponent(blocks, component_typename_bare::Symbol, component_type_params, subcomponent_supertype::Symbol, subcomponent_suffix::Symbol, subcomponent_macro_name::AbstractString)
+function _configure_subcomponent(blocks, component_typename_bare::Symbol, component_type_params, subcomponent_supertype::Symbol, 
+                                 subcomponent_suffix::Symbol, subcomponent_macro_name::AbstractString)
     subcomponent_type_name = nothing
     blocks = MacroTools.prewalk(blocks) do expr
         if @capture(expr, Placeholder <: Tsuper_) && Tsuper == subcomponent_supertype
@@ -277,8 +330,8 @@ function _configure_integrable_derivative(blocks, typename_bare)
 end
 
 function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Type{T_dir},
-                         x_integrable_tuple_in, x_direct_tuple_in, component_data) where {T_dyn<:Dynamics, T_int<:IntegrableState, T_intderiv<:IntegrableState, 
-                                                                                            T_dir<:DirectState}
+                         x_integrable_tuple_in, x_direct_tuple_in, component_data) where {T_dyn<:Dynamics, T_int<:IntegrableState,
+                                                                                          T_intderiv<:IntegrableState, T_dir<:DirectState}
     # create the integrable, direct, dynamic state data structures
     istate = T_int(x_integrable_tuple_in...)
     istate_deriv = T_intderiv(Tuple(zero(integrable_derivative_type(typeof(x_sub))) for x_sub in x_integrable_tuple_in)...)
@@ -300,11 +353,13 @@ function create_dynamics(::Type{T_dyn}, ::Type{T_int}, ::Type{T_intderiv}, ::Typ
 end
 
 function create_sensor_actuator_controller(::Type{T_sac}, ::Type{T_state}, ::Type{T_out},
-                         state_tuple_in, output_tuple_in, component_data) where {T_sac<:SensorActuatorController, T_state<:SensorActuatorControllerState, T_out<:SensorActuatorControllerOutputs}
+                         state_tuple_in, output_tuple_in, periodic, component_data) where {T_sac<:SensorActuatorController,
+                                                                                           T_state<:SensorActuatorControllerState,
+                                                                                           T_out<:SensorActuatorControllerOutputs}
     # create the state and output data structures
     state = T_state(state_tuple_in...)
     outputs = T_out(output_tuple_in...)
-    data = SensorActuatorControllerData(state, outputs, state_tuple_in, component_data)
+    data = SensorActuatorControllerData(state, outputs, state_tuple_in, periodic, component_data)
 
     return T_sac(data)
 end
@@ -403,7 +458,7 @@ end
 # custom types can be placed inside the integrable state by satisfying the following interface:
 #   1. define an "integrable_size" method
 #   2. define a "integrable_scalar_type" method, if the default (eltype) is not sufficient
-#   3. define a "copyto!" method with the type signature matching below
+#   3. define a "copyto!" method for copying into the integrable state struct, with the type signature matching below
 #   4. define a "make_integrable" method, which returns an iterable object to be
 #      copied into the integrable vector's relevant view, if default is not
 #      sufficent
@@ -421,7 +476,8 @@ integrable_size(::Type{T}) where T = 1
 integrable_size(::Type{SVector{N, T}}) where {T, N} = N
 integrable_size(::Type{MVector{N, T}}) where {T, N} = N
 integrable_size(::Type{SizedVector{N, T}}) where {T, N} = N
-integrable_size(::Type{T}) where {T<:Vector} = error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
+integrable_size(::Type{T}) where {T<:Vector} = 
+    error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
 integrable_size(::Type{Q}) where {Q<:UnitQuaternion} = 4
 
 integrable_scalar_type(::Type{T}) where T = eltype(T)

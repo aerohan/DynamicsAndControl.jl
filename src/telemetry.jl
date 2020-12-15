@@ -145,7 +145,9 @@ function Base.show(io::IO, flow_data::FlowData)
     println(io, keys(data(flow_data)))
 end
 
-@recipe _handle_dataseries(::Type{T}, val::T) where{T<:DataSeries} = val.series
+@recipe _handle_dataseries(::Type{T}, val::T) where{T<:DataSeries} = _plotting_process(val.series)
+_plotting_process(x) = x
+_plotting_process(x::Vector{T}) where {T<:AbstractVector} = reduce(hcat, x)'
 
 Base.getindex(ds::DataSeries{T}, i::Int) where {T<:AbstractVector} = map(val->val[i], ds.series)
 Base.getindex(ds::DataSeries{T}) where {T<:Real} = ds.series
@@ -153,5 +155,5 @@ Base.getindex(ds::DataSeries{T}) where {T<:Real} = ds.series
 Base.broadcasted(f, ds::DataSeries, args...) = Base.broadcasted(f, ds.series, args...)
 Base.iterate(ds::DataSeries, args...) = iterate(ds.series, args...)
 Base.length(ds::DataSeries, args...) = length(ds.series, args...)
-Base.first(ds::DataSeries, args...) = ds.series[1]
-Base.last(ds::DataSeries, args...) = ds.series[end]
+Base.first(ds::DataSeries, args...) = first(ds.series, args...)
+Base.last(ds::DataSeries, args...) = last(ds.series, args...)

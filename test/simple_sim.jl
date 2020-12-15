@@ -65,6 +65,7 @@ function test()
     @test all(state.q[1] .≈ 1.0)
     @test all(state.q[2] .≈ 0.0)
 
+    return data
 end
 
 function test_compare_performance()

@@ -35,9 +35,9 @@ function Simulation(dynamics_args,
     # named tuples for clarity, but the correct order must be maintained, since
     # the tuple is splatted based positional arguments
     dynamics = _setup(Dynamics, dynamics_args, simtime, dt, log_sink)
-    sensor = _setup(Sensor, sensor_args, simtime, control_dt, log_sink, dynamics)
-    controller = _setup(Sensor, controller_args, simtime, control_dt, log_sink, sensor)
-    actuator = _setup(Actuator, actuator_args, simtime, control_dt, log_sink, controller)
+    sensor = _setup(Sensor, sensor_args, simtime, dt, control_dt, log_sink, dynamics)
+    controller = _setup(Controller, controller_args, simtime, dt, control_dt, log_sink, sensor)
+    actuator = _setup(Actuator, actuator_args, simtime, dt, control_dt, log_sink, controller)
 
     return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, log_sink)
 end
@@ -72,32 +72,14 @@ function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, log_sink)
     return dynamics
 end
 
-# TODO: 3 methods below can probably be combined into 2
-function _setup(::Type{Sensor}, sensor_args, simtime, dt, log_sink, dynamics)
-    namespace, T_s, config_s = sensor_args
-    state_initial, outputs_initial, static_s = initialize(T_s, config_s)
-    component_data = ComponentData(simtime, dt, dt, static_s, log_sink, namespace)
-    sensor = T_s(state_initial, outputs_initial, component_data, dynamics)
+function _setup(::Type{SAC}, component_args, simtime, sim_dt, control_dt, log_sink, input_component) where {SAC<:SensorActuatorController}
+    namespace, T_c, config = component_args
+    state_initial, outputs_initial, static = initialize(T_c, config)
+    component_periodic = PeriodicFixed(control_dt)
+    component_data = ComponentData(simtime, sim_dt, component_periodic.dt, static, log_sink, namespace)
+    component = T_c(state_initial, outputs_initial, component_periodic, component_data, input_component)
 
-    return sensor
-end
-
-function _setup(::Type{Controller}, controller_args, simtime, dt, log_sink, sensor)
-    namespace, T_c, config_c = controller_args
-    state_initial, outputs_initial, static_c = initialize(T_c, config_c)
-    component_data = ComponentData(simtime, dt, dt, static_c, log_sink, namespace)
-    controller = T_c(state_initial, outputs_initial, component_data, sensor)
-
-    return controller
-end
-
-function _setup(::Type{Actuator}, actuator_args, simtime, dt, log_sink, controller)
-    namespace, T_a, config_a = actuator_args
-    state_initial, outputs_initial, static_a = initialize(T_a, config_a)
-    component_data = ComponentData(simtime, dt, dt, static_a, log_sink, namespace)
-    actuator = T_a(state_initial, outputs_initial, component_data, controller)
-
-    return actuator
+    return component
 end
 
 function simulate(sim::Simulation)
