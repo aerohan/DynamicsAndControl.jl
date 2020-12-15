@@ -19,6 +19,8 @@ using DynamicsAndControl
 using StaticArrays
 using Rotations
 using OrdinaryDiffEq
+using Plots
+plotlyjs()
 
 @dynamics PlanarRocketLanding{T} begin
     @integrable begin
@@ -48,21 +50,26 @@ function DynamicsAndControl.initialize(::Type{PlanarRocketLanding}, config)
 end
 
 function DynamicsAndControl.dynamics!(this::PlanarRocketLanding, ẋ, x, u, t)
-    @unpack Isp, J = static(this)
-    @unpack r, v, θ, ω, m = x
+    @unpack Isp, J, t_hat_body, g0 = static(this)
+    @unpack r, v, θ, ω, m, landed = x
     @unpack δ_gim, T_thrust = u
 
-    f_thrust = T_thrust*RotMatrix(θ)*@SVector([1.0, 0.0])
-    f_grav = @SVector([0.0, -m*9.81])
+    f_thrust = T_thrust*RotMatrix(θ)*t_hat_body
+    f_grav = @SVector([0.0, -m*g0])
     f_total = f_thrust + f_grav
 
-    ẋ.r = v
-    ẋ.v = f_total/m
-    ẋ.θ = ω
-    ẋ.ω = T_thrust*sin(δ_gim)/J
-    ẋ.m = -T_thrust*Isp
+    if !landed
+        ẋ.r = v
+        ẋ.v = f_total/m
+        ẋ.θ = ω
+        ẋ.ω = T_thrust*sin(δ_gim)/J
+        ẋ.m = -T_thrust/(Isp*g0)
+    else
+        ẋ.r = ẋ.v = @SVector zeros(2)
+        ẋ.θ = ẋ.ω = 0.0
+    end
 
-    log!(this, :state, t, (a=ẋ.v, ω̇=ẋ.ω, r, v, θ, ω, m))
+    log!(this, :state, t, (a=ẋ.v, ω̇=ẋ.ω, ṁ=ẋ.m, r, v, θ, ω, m))
     log!(this, :forces, t, (;f_thrust, f_grav, f_total))
 end
 
@@ -70,9 +77,9 @@ DynamicsAndControl.initialize(::Type{RocketLandingController}, config) = (), (0.
 
 function DynamicsAndControl.update!(this::RocketLandingController, u, _, x, t)
     @unpack m = x
-    @unpack T_W = static(this)
+    @unpack T_W, g0 = static(this)
 
-    T_thrust = m*9.81 * T_W
+    T_thrust = m*g0*T_W
     δ_gim = 0.0
 
     @pack! u = T_thrust, δ_gim
@@ -85,15 +92,17 @@ dynamics_conf = ( x0 = (
                          v = @SVector([-50.0, -250.0]),
                          θ = -20*π/180,
                          ω = .3*π/180,
-                         m = 1e4,
+                         m = 1e5,
                     ),
                   params = (
-                        Isp = 300*9.81,
+                        Isp = 300,
+                        g0 = 9.81,
                         J = 1e6,
+                        t_hat_body = @SVector [-1.0, 0.0]
                     )
                  )
 
-control_conf = ( T_W = 1.1, )
+control_conf = ( T_W = 1.1, g0 = 9.81)
 
 
 sim = Simulation(
@@ -102,9 +111,27 @@ sim = Simulation(
                     10.0, RK4(), dt=0.02
                )
 
-data, _ = simulate(sim)
+data = simulate(sim)
 
-let f = data.truth.forces
-    plot(f.time, f.f_total[1], xlabel="time", ylabel="f horz")
-    plot!(f.time, f.f_total[2], xlabel="time", ylabel="f vert")
+let p = data.truth.state
+    #plot(p.time, p.r[1], xlabel="time", ylabel="horz")
+    #plot!(p.time, p.r[2], xlabel="time", ylabel="vert")
+    plot(p.r[1], p.r[2], xlabel="horz", ylabel="vert")
+end
+
+let p = data.truth.state
+    plot(p.time, p.v)
+end
+
+let p = data.truth.state
+    plot(p.time, p.v)
+end
+
+let p = data.truth.state
+    plot(p.time, p.θ.*180/π)
+end
+
+let p = data.truth.state
+    #plot(p.time, p.m, xlim=(0, .5), ylim=(0.0, 1.0))
+    plot!(p.time, p.ṁ)
 end
