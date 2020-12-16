@@ -24,6 +24,15 @@ mutable struct LogDataSink
 end
 LogDataSink() = LogDataSink(Dict{LogDataFlowId, Dict{Symbol, Vector}}())
 
+function reset!(log_sink::LogDataSink)
+    for (id, data_table) in log_sink.data
+        for sym in collect(keys(data_table))
+            data_v = data_table[sym]
+            data_table[sym] = eltype(data_v)[]
+        end
+    end
+end
+
 function log!(component::Component, flow, t, current_data::NamedTuple)
     make_tuple(flow::Symbol) = (flow,)
     make_tuple(flow) = flow

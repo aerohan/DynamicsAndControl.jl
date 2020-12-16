@@ -83,16 +83,15 @@ function _setup(::Type{SAC}, component_args, simtime, sim_dt, control_dt, log_si
 end
 
 function simulate(sim::Simulation)
-    # set up the initial state
-    set_state!(state(sim.dynamics), data(sim.dynamics).x_initial_integrable, data(sim.dynamics).x_initial_direct)
-    copyto!(integrable_vector(sim.dynamics), integrable_substate(sim.dynamics))
-    x0_vector = copy(integrable_vector(sim.dynamics))
+    # initialize or reset all states
+    reset!(sim, sim.tspan[1])
 
     # generate the controls at the first timestep
     update_sensor_controller_actuator!(sim)
 
     # set up the ODE solver
     ode_func! = (ẋ, x, _, t) -> dynamics_ode_interface!(sim, ẋ, x, t)
+    x0_vector = copy(integrable_vector(sim.dynamics))
     ode_problem = ODEProblem(ode_func!, x0_vector, sim.tspan)
     ode_integrator = init(ode_problem, sim.solver, dt=sim.dt, saveat=sim.dt, adaptive=false)
 
@@ -140,8 +139,7 @@ function update_dynamics!(sim, integrator)
     x_vec = integrable_vector(sim.dynamics)
     u = outputs(sim.actuator)
 
-    state_modified = update!(sim.dynamics, ẋ, x, u, t_current)::Bool
-    if state_modified
+    if is_modified(update!(sim.dynamics, ẋ, x, u, t_current))
         copyto!(x_vec, xi)
         set_u!(integrator, x_vec)
     end
@@ -152,18 +150,40 @@ function update_dynamics!(sim, integrator)
     u_modified!(integrator, true)
 end
 
+is_modified(mod::Bool) = mod
+is_modified(mod) = error("dynamics update! function must return boolean specifying whether integrable state was directly modified")
+
 function update_sensor_controller_actuator!(sim::Simulation)
     # dispatch each of the sensor, controller, actuator components (they will update if their periodic fires)
     t_current = get(sim.simtime)
-    dispatch(periodic(sim.sensor), t_current, sim_dt(sim.sensor)) do
+    dispatch!(periodic(sim.sensor), t_current, sim_dt(sim.sensor)) do
         update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
     end
-    dispatch(periodic(sim.controller), t_current, sim_dt(sim.controller)) do
+    dispatch!(periodic(sim.controller), t_current, sim_dt(sim.controller)) do
         update!(sim.controller, outputs(sim.controller), state(sim.controller), outputs(sim.sensor), t_current)
     end
-    dispatch(periodic(sim.actuator), t_current, sim_dt(sim.actuator)) do
+    dispatch!(periodic(sim.actuator), t_current, sim_dt(sim.actuator)) do
         update!(sim.actuator, outputs(sim.actuator), state(sim.actuator), outputs(sim.controller), t_current)
     end
+end
+
+function reset!(sim::Simulation, t0)
+    # reset simtime
+    set!(sim.simtime, t0)
+
+    # set up the initial dynamics state
+    set_state!(state(sim.dynamics), data(sim.dynamics).x_initial_integrable, data(sim.dynamics).x_initial_direct)
+    copyto!(integrable_vector(sim.dynamics), integrable_substate(sim.dynamics))
+
+    # reset periodics, sensor/actuator/controller states, and custom states
+    for component in (sim.sensor, sim.controller, sim.actuator)
+        reset!(periodic(component))
+        reset_state!(component)
+        reset!(component)
+    end
+
+    # reset the log sink
+    reset!(sim.log_sink)
 end
 
 process_time_span(tspan::Tuple) = tspan[1], tspan[2]
