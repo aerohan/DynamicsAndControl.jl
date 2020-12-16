@@ -20,8 +20,9 @@ using DynamicsAndControl
 using StaticArrays
 using Rotations
 using OrdinaryDiffEq
+using LinearAlgebra
 using Plots
-plotlyjs()
+gr()
 
 @dynamics PlanarRocketLanding{T} begin
     @integrable begin
@@ -50,6 +51,7 @@ function DynamicsAndControl.initialize(::Type{PlanarRocketLanding}, config)
     return (x0.r, x0.v, x0.θ, x0.ω, x0.m), (false,), config.params
 end
 
+# +
 function DynamicsAndControl.dynamics!(this::PlanarRocketLanding, ẋ, x, u, t)
     @unpack Isp, J, t_hat_body, g0 = static(this)
     @unpack r, v, θ, ω, m, landed = x
@@ -58,6 +60,8 @@ function DynamicsAndControl.dynamics!(this::PlanarRocketLanding, ẋ, x, u, t)
     f_thrust = T_thrust*RotMatrix(θ)*t_hat_body
     f_grav = @SVector([0.0, -m*g0])
     f_total = f_thrust + f_grav
+    
+    K_e = 1/2*m*norm(v)^2
 
     if !landed
         ẋ.r = v
@@ -71,8 +75,17 @@ function DynamicsAndControl.dynamics!(this::PlanarRocketLanding, ẋ, x, u, t)
     end
 
     log!(this, :state, t, (a=ẋ.v, ω̇=ẋ.ω, ṁ=ẋ.m, r, v, θ, ω, m))
-    log!(this, :forces, t, (;f_thrust, f_grav, f_total))
+    log!(this, :forces, t, (;f_thrust, f_grav, f_total, K_e))
 end
+
+function DynamicsAndControl.update!(this::PlanarRocketLanding, ẋ, x, u, t)
+    if(x.r[2] <= 0.0)
+        x.landed = true
+    end
+    
+    return false
+end
+# -
 
 DynamicsAndControl.initialize(::Type{RocketLandingController}, config) = (), (0.0, 0.0), config
 
@@ -120,7 +133,8 @@ let p = data.truth.state
 end
 
 let p = data.truth.state
-    plot(p.time, p.v, label=["vx" "vz"])
+    #plot(p.time, p.v, label=["vx" "vz"])
+    plot(p.time, norm.(p.v))
 end
 
 let p = data.truth.state
@@ -128,5 +142,6 @@ let p = data.truth.state
 end
 
 let p = data.truth.forces
-    plot(p.time, p.f_thrust, label=["fx" "fz"])
+    #plot(p.time, p.f_thrust, label=["fx" "fz"])
+    plot(p.time, p.K_e)
 end
