@@ -16,9 +16,10 @@ initialize(::Type{FullStateSensor}, config) = (), (), NamedTuple()
 FullStateSensor(_, _, periodic, component_data, dynamics) = FullStateSensor(state(dynamics), 
                                                                             component_data, periodic)
 outputs(f::FullStateSensor) = f.state
-state(f::FullStateSensor) = nothing
+state(::FullStateSensor) = nothing
 periodic(f::FullStateSensor) = f.periodic
 sim_dt(f::FullStateSensor) = f.component_data.simulation_dt
+reset_state!(::FullStateSensor) = nothing
 
 # Pass all of the controller outputs directly to the dynamics
 struct PassthroughActuator{CO<:SensorActuatorControllerOutputs,P<:PeriodicFixed,CD<:ComponentData} <: Actuator
@@ -30,6 +31,7 @@ initialize(::Type{PassthroughActuator}, config) = (), (), NamedTuple()
 PassthroughActuator(_, _, periodic, component_data, controller) = PassthroughActuator(outputs(controller), 
                                                                                       component_data, periodic)
 outputs(p::PassthroughActuator) = p.controller_outputs
-state(p::PassthroughActuator) = nothing
+state(::PassthroughActuator) = nothing
 periodic(p::PassthroughActuator) = p.periodic
 sim_dt(p::PassthroughActuator) = p.component_data.simulation_dt
+reset_state!(::PassthroughActuator) = nothing

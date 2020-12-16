@@ -19,9 +19,9 @@ mutable struct PeriodicReal{T}
     eps::T
 end
 PeriodicReal(dt; eps=1e-6) = PeriodicReal(dt, typemax(dt), 0, eps)
-reset(p::PeriodicReal) = (p.t0 = typemax(p.t0))
+reset!(p::PeriodicReal) = (p.t0 = typemax(p.t0))
 
-function dispatch(f, periodic::PeriodicReal, t)
+function dispatch!(f, periodic::PeriodicReal, t)
     if isinf(periodic.t0)
         periodic.t0 = t
     end
@@ -41,11 +41,11 @@ mutable struct PeriodicFixed{T}
     t_last::T
 end
 PeriodicFixed(dt) = PeriodicFixed(dt, typemax(dt))
-function reset(p::PeriodicFixed)
+function reset!(p::PeriodicFixed)
     p.t_last = typemax(p.t_last)
 end
 
-function dispatch(f, periodic::PeriodicFixed, t, sim_dt)
+function dispatch!(f, periodic::PeriodicFixed, t, sim_dt)
     if isinf(periodic.t_last)
         f()
         periodic.t_last = t
@@ -122,11 +122,13 @@ integrable_substate_derivative(dynamics::Dynamics) = getfield(state(dynamics), :
 direct_substate(dynamics::Dynamics) = getfield(state(dynamics), :x_direct)
 integrable_vector(dynamics::Dynamics) = getfield(dynamics.data, :x_integrable_vector)
 
-function update!(::SensorActuatorController, output, state, input, t) return nothing end
+update!(::SensorActuatorController, output, state, input, t) = nothing
 periodic(sac::SensorActuatorController) = sac.data.periodic
 component_data(sac::SensorActuatorController) = sac.data.component_data
 outputs(sac::SensorActuatorController) = sac.data.outputs
 state(sac::SensorActuatorController) = sac.data.state
+reset!(::SensorActuatorController) = nothing
+reset_state!(sac::SensorActuatorController) = set_state!(state(sac), sac.data.state_initial)
 
 macro dynamics(typename, blocks)
     blocks, typename_bare, type_params = _component_definition_parse_expand(typename, blocks, __module__)
@@ -418,6 +420,21 @@ end
     T_xd = fieldtype(x, :x_direct)
     for (index, field) in enumerate(fieldnames(T_xd))
         line = :(setfield!(x_direct_data, $(QuoteNode(field)), x_direct_in[$index]))
+        push!(out.args, line)
+    end
+
+    return out
+end
+
+@generated function set_state!(state::SensorActuatorControllerState, state_tuple_in)
+    out = quote
+        # ensure the state input is a tuple (may be passed in as named tuple
+        # for clarity, but only looking at positional arguments here)
+        state_tuple_in = Tuple(state_tuple_in)
+    end
+
+    for (index, field) in enumerate(fieldnames(state))
+        line = :(setfield!(state, $(QuoteNode(field)), state_tuple_in[$index]))
         push!(out.args, line)
     end
 
