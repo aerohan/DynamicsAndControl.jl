@@ -33,19 +33,29 @@ function reset!(log_sink::LogDataSink)
     end
 end
 
-function log!(component::Component, flow, t, current_data::NamedTuple)
-    make_tuple(flow::Symbol) = (flow,)
-    make_tuple(flow) = flow
-
-    augmented_flow_namespace = (namespace(component), make_tuple(flow)...)
-
-    # log at either the end or start of an integration step
-    if get(simtime(component)) + sim_dt(component) ≈ t || get(simtime(component)) ≈ t
-        log!(log_sink(component), augmented_flow_namespace, t, current_data)
-    end
+struct SimulationLogger{T_t}
+    log_sink::LogDataSink
+    simtime::SimTime{T_t}
 end
 
-function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple)
+function _flow_full_namespace(component::Component, flow_spec)
+    make_tuple(flow::Symbol) = (flow,)
+    make_tuple(flow) = flow
+    return (namespace(component), make_tuple(flow_spec)...)
+end
+
+function log!(component::Component, flow, t, current_data::NamedTuple)
+    # log at either the end or start of an integration step
+    if get(simtime(component)) + sim_dt(component) ≈ t || get(simtime(component)) ≈ t
+        log!(logger(component), _flow_full_namespace(component, flow), t, current_data)
+    end
+end
+log!(component::SensorActuatorController, flow, current_data::NamedTuple) = log!(logger(component), _flow_full_namespace(component, flow), current_data)
+
+log!(logger::SimulationLogger, flow, t, current_data) = log!(logger.log_sink, flow, t, current_data, dir(logger.simtime))
+log!(logger::SimulationLogger, flow, current_data) = log!(logger.log_sink, flow, get(logger.simtime), current_data, dir(logger.simtime))
+
+function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple, t_dir=one(typeof(t)))
     flow = LogDataFlowId(flow)
 
     # if this is the first time around, register this flow
@@ -59,15 +69,17 @@ function log!(log_sink::LogDataSink, flow, t, current_data::NamedTuple)
     end
 
     # log the data at this time
-    log!(log_sink.data[flow], t, current_data)
+    log!(log_sink.data[flow], t, t_dir, current_data)
 
     return nothing
 end
 
-function log!(flow_data::Dict{Symbol, Vector}, t, current_data)
-    # pop all values that should be replaced by the data at the current time
+function log!(flow_data::Dict{Symbol, Vector}, t, t_dir, current_data)
+    # pop all values that should be replaced by the data at the current time,
+    # supporting both forwards-in-time and backwards-in-time
+    # integration/logging order
     t_vec = flow_data[:time]::Vector{typeof(t)}
-    while length(t_vec) > 0 && t_vec[end] >= t
+    while length(t_vec) > 0 && ((t_dir >= zero(t) && t_vec[end] >= t) || (t_dir <= zero(t) && t_vec[end] <= t))
         log_pop!(flow_data, t, current_data)
     end
 

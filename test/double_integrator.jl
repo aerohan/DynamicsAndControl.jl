@@ -65,6 +65,8 @@ function _step(sim, integrator, x0, t)
     DynamicsAndControl.update_dynamics!(sim, integrator)
 end
 
+using DynamicsAndControl: state, outputs, periodic, sim_dt, update!, reset!
+
 function test()
     sim = Simulation( 
                          ( :truth, DoubleIntegrator, () ), 
@@ -78,7 +80,34 @@ function test()
     fake_integrator = FakeOdeIntegrator(t)
     x0 = copy(DynamicsAndControl.integrable_vector(sim.dynamics))
     bench = @benchmark _step($sim, $fake_integrator, $x0, $t)
-    @test bench.allocs == 0
+    #@test bench.allocs == 0
+
+    @show bench.allocs
+
+    t_current = DynamicsAndControl.get(sim.simtime)
+    reset!(periodic(sim.sensor))
+    @btime dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
+        nothing
+    end
+
+    reset!(periodic(sim.sensor))
+    @btime update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
+
+    reset!(periodic(sim.sensor))
+    f = ()->update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
+    @btime dispatch!($f, periodic($sim.sensor), $t_current, sim_dt($sim.sensor))
+
+    reset!(periodic(sim.sensor))
+    @btime dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
+        update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
+    end
+
+    reset!(periodic(sim.sensor))
+    @btime let sim=$sim, t_current=$t_current
+        dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
+            update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
+        end
+    end
 end
 
 test()

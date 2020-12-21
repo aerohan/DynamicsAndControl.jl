@@ -11,7 +11,7 @@ struct Simulation{D<:Dynamics,S<:Sensor,C<:Controller,A<:Actuator,T_t<:Real,T_so
     solver::T_solver
 
     # Auxiliary
-    log_sink::LogDataSink
+    logger::SimulationLogger{T_t}
 end
 
 function Simulation(dynamics_args,
@@ -20,11 +20,10 @@ function Simulation(dynamics_args,
                     actuator_args,
                     tspan, solver; dt=error("must specify dt"), control_dt=dt)
 
-    # set up simulation time span and time object
+    # set up simulation time span and time object, and logger
     tstart, tfinal = process_time_span(tspan)
     simtime = SimTime(tstart)
-
-    log_sink = LogDataSink()
+    logger = SimulationLogger(LogDataSink(), simtime)
 
     # initialize each of the components. initial states/outputs (with concrete
     # types) is returned by the custom initialize call. the static data named
@@ -34,12 +33,12 @@ function Simulation(dynamics_args,
     # to the the fields of the subcomponent struct. they may be written as
     # named tuples for clarity, but the correct order must be maintained, since
     # the tuple is splatted based positional arguments
-    dynamics = _setup(Dynamics, dynamics_args, simtime, dt, log_sink)
-    sensor = _setup(Sensor, sensor_args, simtime, dt, control_dt, log_sink, dynamics)
-    controller = _setup(Controller, controller_args, simtime, dt, control_dt, log_sink, sensor)
-    actuator = _setup(Actuator, actuator_args, simtime, dt, control_dt, log_sink, controller)
+    dynamics = _setup(Dynamics, dynamics_args, simtime, dt, logger)
+    sensor = _setup(Sensor, sensor_args, simtime, dt, control_dt, logger, dynamics)
+    controller = _setup(Controller, controller_args, simtime, dt, control_dt, logger, sensor)
+    actuator = _setup(Actuator, actuator_args, simtime, dt, control_dt, logger, controller)
 
-    return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, log_sink)
+    return Simulation(dynamics, sensor, controller, actuator, simtime, (tstart, tfinal), dt, solver, logger)
 end
 
 # dynamics only, no control
@@ -63,20 +62,20 @@ function Simulation(dynamics_args, sensor_args, controller_args, tspan, solver; 
     return Simulation(dynamics_args, sensor_args, controller_args, actuator_args, tspan, solver; dt, control_dt)
 end
 
-function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, log_sink)
+function _setup(::Type{Dynamics}, dynamics_args, simtime, dt, logger)
     namespace, T_dyn, config_dyn = dynamics_args
     istate_initial, dstate_initial, static_dyn = initialize(T_dyn, config_dyn)
-    component_data = ComponentData(simtime, dt, dt, static_dyn, log_sink, namespace)
+    component_data = ComponentData(simtime, dt, dt, static_dyn, logger, namespace)
     dynamics = T_dyn(istate_initial, dstate_initial, component_data)
 
     return dynamics
 end
 
-function _setup(::Type{SAC}, component_args, simtime, sim_dt, control_dt, log_sink, input_component) where {SAC<:SensorActuatorController}
+function _setup(::Type{SAC}, component_args, simtime, sim_dt, control_dt, logger, input_component) where {SAC<:SensorActuatorController}
     namespace, T_c, config = component_args
     state_initial, outputs_initial, static = initialize(T_c, config)
     component_periodic = PeriodicFixed(control_dt)
-    component_data = ComponentData(simtime, sim_dt, component_periodic.dt, static, log_sink, namespace)
+    component_data = ComponentData(simtime, sim_dt, component_periodic.dt, static, logger, namespace)
     component = T_c(state_initial, outputs_initial, component_periodic, component_data, input_component)
 
     return component
@@ -94,11 +93,17 @@ function simulate(sim::Simulation)
     x0_vector = copy(integrable_vector(sim.dynamics))
     ode_problem = ODEProblem(ode_func!, x0_vector, sim.tspan)
     ode_integrator = init(ode_problem, sim.solver, dt=sim.dt, saveat=sim.dt, adaptive=false)
+    set_dir!(sim.simtime, ode_integrator.tdir)
+
+    # pre-simulation spot checks
+    ode_integrator.t == get(sim.simtime) || error("mismatch between ODE time and sim time")
+    if dir(sim.simtime) <= 0.0
+        (sim.sensor isa NoSensor && sim.controller isa NoController && sim.actuator isa NoActuator) ||
+            error("backwards integration only works for dynamics-only simulations (can't run sensor, controller, actuator)")
+    end
 
     # update the dynamics for the start of the first integration step
     update_dynamics!(sim, ode_integrator)
-
-    ode_integrator.t == get(sim.simtime) || error("mismatch between ODE time and sim time")
 
     # simulation loop
     for integrator_step in ode_integrator
@@ -115,7 +120,7 @@ function simulate(sim::Simulation)
         update_dynamics!(sim, integrator_step)
     end
 
-    return SimulationDataset(sim.log_sink)
+    return SimulationDataset(sim.logger.log_sink)
 end
 
 function dynamics_ode_interface!(sim, ẋ, x, t)
@@ -183,7 +188,7 @@ function reset!(sim::Simulation, t0)
     end
 
     # reset the log sink
-    reset!(sim.log_sink)
+    reset!(sim.logger.log_sink)
 end
 
 process_time_span(tspan::Tuple) = tspan[1], tspan[2]

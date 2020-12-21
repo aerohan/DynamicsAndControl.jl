@@ -3,13 +3,6 @@ function initialize(::Type{Component}, config) end
 function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
 
-# Time
-mutable struct SimTime{T}
-    t::T
-end
-set!(time::SimTime, t) = (time.t = t)
-get(time::SimTime) = time.t
-
 # Periodic which dispatches looking only at current time relative to scheduled.
 # Dispatch dt does not have to be integer multiple of sim dt.
 mutable struct PeriodicReal{T}
@@ -65,7 +58,7 @@ struct ComponentData{T_t<:Real,NT<:NamedTuple}
 
     # Auxiliary data and objects (static params and telem sink)
     static::NT
-    log_sink::LogDataSink
+    logger::SimulationLogger{T_t}
     namespace::Symbol
 end
 
@@ -111,7 +104,7 @@ simtime(c::Component) = component_data(c).simtime
 sim_dt(c::Component) = component_data(c).simulation_dt
 component_dt(c::Component) = component_data(c).component_dt
 namespace(c::Component) = component_data(c).namespace
-log_sink(c::Component) = component_data(c).log_sink
+logger(c::Component) = component_data(c).logger
 static(c::Component) = component_data(c).static
 
 data(dyn::Dynamics) = dyn.data
