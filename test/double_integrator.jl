@@ -48,6 +48,7 @@ DynamicsAndControl.initialize(::Type{DoubleIntegratorController}, config) = (), 
 
 function DynamicsAndControl.update!(this::DoubleIntegratorController, u, state, y, t)
     u.a = -3.2 * y.r_sense
+    #println("updating at t=$t, a=$(u.a)")
 
     log!(this, (), t, (a=u.a,))
 end
@@ -59,6 +60,10 @@ OrdinaryDiffEq.set_u!(f::FakeOdeIntegrator, args...) = nothing
 OrdinaryDiffEq.u_modified!(f::FakeOdeIntegrator, args...) = nothing
 
 function _step(sim, integrator, x0, t)
+    DynamicsAndControl.reset!(DynamicsAndControl.periodic(sim.sensor))
+    DynamicsAndControl.reset!(DynamicsAndControl.periodic(sim.controller))
+    DynamicsAndControl.reset!(DynamicsAndControl.periodic(sim.actuator))
+
     DynamicsAndControl.set!(sim.simtime, t)
     DynamicsAndControl.copyto!(DynamicsAndControl.integrable_substate(sim.dynamics), x0)
     DynamicsAndControl.update_sensor_controller_actuator!(sim)
@@ -81,33 +86,26 @@ function test()
     x0 = copy(DynamicsAndControl.integrable_vector(sim.dynamics))
     bench = @benchmark _step($sim, $fake_integrator, $x0, $t)
     #@test bench.allocs == 0
+    
+    sim = (;simtime = sim.simtime)
+    
+    @btime update_test!($sim)
+    update_test!(sim)
+    #@code_llvm update_test!(sim)
+    #@code_lowered update_test!(sim)
+    #@code_warntype update_test!(sim)
+    @show sizeof(sim)
 
-    @show bench.allocs
-
-    t_current = DynamicsAndControl.get(sim.simtime)
-    reset!(periodic(sim.sensor))
-    @btime dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
-        nothing
-    end
-
-    reset!(periodic(sim.sensor))
-    @btime update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
-
-    reset!(periodic(sim.sensor))
-    f = ()->update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
-    @btime dispatch!($f, periodic($sim.sensor), $t_current, sim_dt($sim.sensor))
-
-    reset!(periodic(sim.sensor))
-    @btime dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
-        update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
-    end
-
-    reset!(periodic(sim.sensor))
-    @btime let sim=$sim, t_current=$t_current
-        dispatch!(periodic($sim.sensor), $t_current, sim_dt($sim.sensor)) do
-            update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), $t_current)
-        end
-    end
 end
+
+function update_test!(sim)
+    #t_current = DynamicsAndControl.get(sim.simtime)
+    #reset!(periodic(sim.sensor))
+    #@btime f = () -> update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), t_current)
+    #f = () -> update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
+    f = () -> (sim.logger.log_sink)
+    #@btime dispatch!($f, periodic($sim.sensor), $t_current, sim_dt($sim.sensor))
+end
+
 
 test()
