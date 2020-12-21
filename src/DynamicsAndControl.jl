@@ -43,7 +43,7 @@ export
     LogDataSink,
     PeriodicReal,
     PeriodicFixed,
-    dispatch!,
+    due!,
     create_dynamics,
     create_sensor_actuator_controller,
     log!,

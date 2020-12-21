@@ -85,27 +85,8 @@ function test()
     fake_integrator = FakeOdeIntegrator(t)
     x0 = copy(DynamicsAndControl.integrable_vector(sim.dynamics))
     bench = @benchmark _step($sim, $fake_integrator, $x0, $t)
-    #@test bench.allocs == 0
+    @test bench.allocs == 0
     
-    sim = (;simtime = sim.simtime)
-    
-    @btime update_test!($sim)
-    update_test!(sim)
-    #@code_llvm update_test!(sim)
-    #@code_lowered update_test!(sim)
-    #@code_warntype update_test!(sim)
-    @show sizeof(sim)
-
 end
-
-function update_test!(sim)
-    #t_current = DynamicsAndControl.get(sim.simtime)
-    #reset!(periodic(sim.sensor))
-    #@btime f = () -> update!($sim.sensor, outputs($sim.sensor), state($sim.sensor), state($sim.dynamics), t_current)
-    #f = () -> update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
-    f = () -> (sim.logger.log_sink)
-    #@btime dispatch!($f, periodic($sim.sensor), $t_current, sim_dt($sim.sensor))
-end
-
 
 test()

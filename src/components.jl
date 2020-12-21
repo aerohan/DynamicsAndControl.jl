@@ -3,7 +3,7 @@ function initialize(::Type{Component}, config) end
 function dynamics!(::Dynamics, ẋ, x, u, t) return nothing end
 function update!(::Dynamics, ẋ, x, u, t) return false end
 
-# Periodic which dispatches looking only at current time relative to scheduled.
+# Periodic which becomes due looking only at current time relative to scheduled.
 # Dispatch dt does not have to be integer multiple of sim dt.
 mutable struct PeriodicReal{T}
     dt::T
@@ -14,20 +14,22 @@ end
 PeriodicReal(dt; eps=1e-6) = PeriodicReal(dt, typemax(dt), 0, eps)
 reset!(p::PeriodicReal) = (p.t0 = typemax(p.t0))
 
-function dispatch!(f, periodic::PeriodicReal, t)
+function due!(periodic::PeriodicReal, t)
+    due = false
     if isinf(periodic.t0)
         periodic.t0 = t
+        due = true
     end
 
     if t >= periodic.t0 + periodic.dt * periodic.index - periodic.eps
-        f()
         periodic.index += 1
+        due = true
     end
 
-    return nothing
+    return due
 end
 
-# Periodic which dispatches based on a fixed number of sim cycles. If dispatch
+# Periodic which becomes due based on a fixed number of sim cycles. If dispatch
 # rate is not integer multiple of simulation dt, the cycle count is rounded.
 mutable struct PeriodicFixed{T}
     dt::T
@@ -38,16 +40,16 @@ function reset!(p::PeriodicFixed)
     p.t_last = typemax(p.t_last)
 end
 
-function dispatch!(f, periodic::PeriodicFixed, t, sim_dt)
+function due!(periodic::PeriodicFixed, t, sim_dt)
+    due = false
     if isinf(periodic.t_last)
-        f()
         periodic.t_last = t
     elseif round((t - periodic.t_last)/sim_dt) == round(periodic.dt/sim_dt)
-        f()
+        due = true
         periodic.t_last = t
     end
 
-    return nothing
+    return due
 end
 
 struct ComponentData{T_t<:Real,NT<:NamedTuple}

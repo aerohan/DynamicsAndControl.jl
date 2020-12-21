@@ -10,12 +10,12 @@ function test_real()
     p = PeriodicReal(.5, eps=eps(1.0))
 
     d = Float64[]
-    dispatch!(p, ode_integrator.t) do
+    if due!(p, ode_integrator.t)
         push!(d, ode_integrator.t)
     end
 
     for integrator_step in ode_integrator
-        dispatch!(p, integrator_step.t) do
+        if due!(p, integrator_step.t)
             push!(d, ode_integrator.t)
         end
     end
@@ -32,12 +32,12 @@ function test_fixed()
     p = PeriodicFixed(.5)
 
     d = Float64[]
-    dispatch!(p, ode_integrator.t, sim_dt) do
+    if due!(p, ode_integrator.t, sim_dt)
         push!(d, ode_integrator.t)
     end
 
     for integrator_step in ode_integrator
-        dispatch!(p, integrator_step.t, sim_dt) do
+        if due!(p, integrator_step.t, sim_dt)
             push!(d, ode_integrator.t)
         end
     end

@@ -159,15 +159,15 @@ is_modified(mod::Bool) = mod
 is_modified(mod) = error("dynamics update! function must return boolean specifying whether integrable state was directly modified")
 
 function update_sensor_controller_actuator!(sim::Simulation)
-    # dispatch each of the sensor, controller, actuator components (they will update if their periodic fires)
+    # dispatch each of the sensor, controller, actuator components if their periodic is due
     t_current = get(sim.simtime)
-    dispatch!(periodic(sim.sensor), t_current, sim_dt(sim.sensor)) do
+    if due!(periodic(sim.sensor), t_current, sim_dt(sim.sensor))
         update!(sim.sensor, outputs(sim.sensor), state(sim.sensor), state(sim.dynamics), t_current)
     end
-    dispatch!(periodic(sim.controller), t_current, sim_dt(sim.controller)) do
+    if due!(periodic(sim.controller), t_current, sim_dt(sim.controller))
         update!(sim.controller, outputs(sim.controller), state(sim.controller), outputs(sim.sensor), t_current)
     end
-    dispatch!(periodic(sim.actuator), t_current, sim_dt(sim.actuator)) do
+    if due!(periodic(sim.actuator), t_current, sim_dt(sim.actuator))
         update!(sim.actuator, outputs(sim.actuator), state(sim.actuator), outputs(sim.controller), t_current)
     end
 end
