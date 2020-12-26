@@ -70,8 +70,6 @@ function _step(sim, integrator, x0, t)
     DynamicsAndControl.update_dynamics!(sim, integrator)
 end
 
-using DynamicsAndControl: state, outputs, periodic, sim_dt, update!, reset!
-
 function test()
     sim = Simulation( 
                          ( :truth, DoubleIntegrator, () ), 
