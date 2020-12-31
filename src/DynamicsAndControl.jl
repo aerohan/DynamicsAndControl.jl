@@ -15,6 +15,7 @@ using Infiltrator
 include("types.jl")
 include("telemetry.jl")
 include("components.jl")
+include("diff.jl")
 include("builtin_components.jl")
 include("simulation.jl")
 

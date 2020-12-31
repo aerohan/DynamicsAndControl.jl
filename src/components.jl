@@ -147,6 +147,9 @@ macro dynamics(typename, blocks)
             return create_dynamics($(typename_bare), $(namify(integrable_state_type)), $(namify(integrable_derivative_type)),
                                    $(namify(direct_state_type)), x_integrable_tuple_in, x_direct_tuple_in, component_data)
         end
+
+        # maps dynamics type to substate types (integrable state, integrable derivative, direct state)
+        DynamicsAndControl.substate_types(::Type{$(typename_bare)}) = $(namify(integrable_state_type)), $(namify(integrable_derivative_type)), $(namify(direct_state_type))
     end |> esc
 end
 
@@ -220,6 +223,9 @@ function _sensor_actuator_controller_setup(typename, blocks, component_supertype
         function $(typename_bare)(state_tuple_in, output_tuple_in, periodic, component_data, input_component)
             return $(typename_bare)(state_tuple_in, output_tuple_in, periodic, component_data)
         end
+
+        # maps sensor/actuator/controller type to substate types (state type, output type)
+        DynamicsAndControl.substate_types(::Type{$(typename_bare)}) = $(namify(state_type)), $(namify(output_type))
     end |> esc
 end
 
@@ -485,10 +491,8 @@ function integrable_size(istate::IntegrableState)
     return length(ftypes) > 0 ? sum([integrable_size(ftype) for ftype in ftypes]) : 0
 end
 integrable_size(::Type{T}) where T = 1
-integrable_size(::Type{SVector{N, T}}) where {T, N} = N
-integrable_size(::Type{MVector{N, T}}) where {T, N} = N
-integrable_size(::Type{SizedVector{N, T}}) where {T, N} = N
-integrable_size(::Type{T}) where {T<:Vector} = 
+integrable_size(::Type{V}) where {V<:Union{SVector, MVector, SizedVector}} = length(V)
+integrable_size(::Type{V}) where {V<:Vector} = 
     error("only statically sized vectors (SVector, MVector, SizedVector) are allowed in the integrable state")
 integrable_size(::Type{Q}) where {Q<:UnitQuaternion} = 4
 
@@ -533,3 +537,5 @@ make_integrable(q::UnitQuaternion{T}) where T = (q.w, q.x, q.y, q.z)
 # most cases, these types are the same
 integrable_derivative_type(::Type{T}) where T = T
 integrable_derivative_type(::Type{Q}) where {Q<:UnitQuaternion{T}} where T = SVector{4, T}
+
+function substate_types(::Type{T}) where T end
